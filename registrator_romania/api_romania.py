@@ -947,8 +947,8 @@ async def main():
 
 async def start_scheduler():
     sch = AsyncIOScheduler()
-    hour = 8
-    minute = 20
+    hour = 7
+    minute = 30
 
     start_date = moscow_dt_now()
     start_date = start_date.replace(hour=hour, minute=minute)

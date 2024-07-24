@@ -4,3 +4,6 @@ telegram_bot:
 
 proxysio:
   api_key: $API_KEY_PROXYSIO
+
+remote_db:
+  uri: $REMOTE_POSTGRESQL_URI

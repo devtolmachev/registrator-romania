@@ -1,4 +1,6 @@
 import asyncio
+import json
+from pprint import pprint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import select, update, delete, insert, Pool, Integer
 from sqlalchemy.ext.asyncio import (
@@ -78,9 +80,13 @@ async def main():
     users = generate_fake_users_data(40)
 
     async with session:
-        await clear_list(session)
-        await insert_users(session, users)
-        print(await get_list_users(session))
+        # await clear_list(session)
+        # await insert_users(session, users)
+        print(
+            json.dumps(
+                await get_list_users(session), indent=2, ensure_ascii=False
+            )
+        )
 
         # for u in users:
         #     await remove_user(session, u)

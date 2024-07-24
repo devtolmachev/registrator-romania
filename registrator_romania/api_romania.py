@@ -3,6 +3,7 @@ import calendar
 from datetime import datetime, date
 import logging
 from operator import le
+import platform
 from pprint import pprint
 import time
 from typing import Required, TypedDict
@@ -17,6 +18,7 @@ from pyjsparser import parse
 import ua_generator
 from pypasser import reCaptchaV3
 from registrator_romania import bot
+from registrator_romania.db import get_list_users, get_session, remove_user
 from registrator_romania.new_request_registrator import (
     generate_fake_users_data,
     get_users_data_from_xslx,
@@ -367,6 +369,9 @@ class APIRomania:
             "honeypot": "",
             "g-recaptcha-response": await self.get_captcha_token(),
         }
+        username = (
+            f"{user_data["Nume Pasaport"]} {user_data["Prenume Pasaport"]}"
+        )
 
         try:
             async with session:
@@ -374,7 +379,19 @@ class APIRomania:
                     self.MAIN_URL, data=data, proxy=proxy
                 ) as resp:
                     raw = await resp.read()
-                    return await resp.text()
+                    html = await resp.text()
+
+                    if not isinstance(html, str):
+                        return html
+
+                    if self.is_success_registration(html):
+                        print(f"{username} registered successfully")
+                    else:
+                        error = self.get_error_registration_as_text(html)
+                        print(f"{username} got an error from server: {error}")
+
+                    return html
+
         except AIOHTTP_NET_ERRORS:
             pass
 
@@ -463,7 +480,20 @@ class APIRomania:
 
 async def registration(tip_formular: int, registration_date: datetime):
     api = APIRomania()
-    users_data = get_users_data_from_xslx()
+    # users_data = get_users_data_from_xslx()
+    users_data = []
+    dbsession = get_session()
+
+    async def update_users_list():
+        nonlocal users_data
+        while True:
+            users_data = await get_list_users(dbsession)
+            await asyncio.sleep(3)
+
+    update_list_task = asyncio.create_task(update_users_list())
+    while not users_data:
+        await asyncio.sleep(1)
+
     # users_data = get_users_data_from_docx()
     # pool = await api.get_proxy_pool()
     proxies = []
@@ -496,22 +526,22 @@ async def registration(tip_formular: int, registration_date: datetime):
 
                 if api.is_success_registration(html):
                     successfully_registered.append(us)
+                    await remove_user(dbsession, us)
+                    report_tasks.append(
+                        bot.send_msg_into_chat(
+                            f"Попытка регистрации для {username} "
+                            "Версия без прокси!\n"
+                            f"Компьютер: {platform.uname()}",
+                            html,
+                        )
+                    )
+
                 else:
                     error_text = api.get_error_registration_as_text(html)
                     logger.info(f"{username} - {error_text}")
                     if error_text == "Data înregistrării este dezactivata":
                         await asyncio.sleep(2)
                         continue
-
-                fn = f"{username}-{time.time()}.html"
-                with open(fn, "w") as f:
-                    f.write(html)
-
-                report_tasks.append(
-                    bot.send_msg_into_chat(
-                        f"Попытка регистрации для {us["Nume Pasaport"]}!", fn
-                    )
-                )
 
             except Exception as e:
                 logger.exception(e)
@@ -533,10 +563,13 @@ def moscow_dt_now():
 
 
 async def main():
-    tip_formular = 4
+    tip_formular = 3
     moscow_dt = moscow_dt_now()
     registration_date = datetime(
-        year=moscow_dt.year, month=11, day=datetime.now().day
+        # year=moscow_dt.year, month=11, day=datetime.now().day
+        year=moscow_dt.year,
+        month=11,
+        day=23,
     )
 
     # await registration(tip_formular, year, month, registration_date)
@@ -561,6 +594,7 @@ async def main():
     await registration(tip_formular, registration_date)
     # pprint(users_data)
     ...
+
 
 async def start_scheduler():
     sch = AsyncIOScheduler()

@@ -1,5 +1,6 @@
 import functools
 from gc import callbacks
+import platform
 import warnings
 
 from registrator_romania.db import get_list_users, get_session, remove_user
@@ -491,9 +492,15 @@ class APIRomania:
                 if not isinstance(html, str):
                     return
 
+                username = f"{user_data["Nume Pasaport"]} {user_data["Prenume Pasaport"]}"
+
                 if self.is_success_registration(html):
+                    print(f"{username} registered successfully")
                     if queue:
                         await queue.put((user_data, html))
+                else:
+                    error = self.get_error_registration_as_text(html)
+                    print(f"{username} got an error from server: {error}")
 
                 return html
             except asyncio.CancelledError as e:
@@ -667,10 +674,12 @@ async def registration(
                 await asyncio.sleep(2)
         except asyncio.CancelledError:
             pass
-        
+
     async def update_users_data():
         nonlocal users_data
-        users_data = await get_list_users(dbsession)
+        while True:
+            users_data = await get_list_users(dbsession)
+            await asyncio.sleep(3)
 
     do_check_places = False
 
@@ -831,7 +840,9 @@ async def registration(
 
                 report_tasks.append(
                     bot.send_msg_into_chat(
-                        f"Успешная попытка регистрарции для {username}", html
+                        f"Успешная попытка регистрарции для {username}. "
+                        f"Компьютер: {platform.uname()}",
+                        html,
                     )
                 )
                 successfully_registered.append(user_data)
@@ -914,12 +925,13 @@ async def start_registration_with_proccess(
 
 async def main():
     tip_formular = 4
-    # tip_formular = 3
+    tip_formular = 3
     moscow_dt = moscow_dt_now()
     registration_date = datetime(
         year=moscow_dt.year,
         month=11,
-        day=datetime.now().day,
+        # day=datetime.now().day,
+        day=23,
         # year=moscow_dt.year,
         # month=10,
         # day=23,

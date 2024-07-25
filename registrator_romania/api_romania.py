@@ -480,20 +480,7 @@ class APIRomania:
 
 async def registration(tip_formular: int, registration_date: datetime):
     api = APIRomania()
-    # users_data = get_users_data_from_xslx()
-    users_data = []
-    dbsession = get_session()
-
-    async def update_users_list():
-        nonlocal users_data
-        while True:
-            users_data = await get_list_users(dbsession)
-            await asyncio.sleep(3)
-
-    update_list_task = asyncio.create_task(update_users_list())
-    while not users_data:
-        await asyncio.sleep(1)
-
+    users_data = get_users_data_from_xslx()
     # users_data = get_users_data_from_docx()
     # pool = await api.get_proxy_pool()
     proxies = []
@@ -526,7 +513,6 @@ async def registration(tip_formular: int, registration_date: datetime):
 
                 if api.is_success_registration(html):
                     successfully_registered.append(us)
-                    await remove_user(dbsession, us)
                     report_tasks.append(
                         bot.send_msg_into_chat(
                             f"Попытка регистрации для {username} "
@@ -539,9 +525,6 @@ async def registration(tip_formular: int, registration_date: datetime):
                 else:
                     error_text = api.get_error_registration_as_text(html)
                     logger.info(f"{username} - {error_text}")
-                    if error_text == "Data înregistrării este dezactivata":
-                        await asyncio.sleep(2)
-                        continue
 
             except Exception as e:
                 logger.exception(e)

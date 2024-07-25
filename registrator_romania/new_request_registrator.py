@@ -357,7 +357,6 @@ def generate_fake_users_data(n: int = 20):
 
 
 async def start_registration_process(dt: date, tip_formular: int):
-
     users_data = generate_fake_users_data()
     users_data = get_users_data_from_xslx()
 

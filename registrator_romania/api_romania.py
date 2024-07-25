@@ -563,13 +563,13 @@ def moscow_dt_now():
 
 
 async def main():
-    tip_formular = 3
+    tip_formular = 4
     moscow_dt = moscow_dt_now()
     registration_date = datetime(
-        # year=moscow_dt.year, month=11, day=datetime.now().day
-        year=moscow_dt.year,
-        month=11,
-        day=23,
+        year=moscow_dt.year, month=11, day=datetime.now().day
+        # year=moscow_dt.year,
+        # month=11,
+        # day=23,
     )
 
     # await registration(tip_formular, year, month, registration_date)
@@ -619,7 +619,7 @@ async def start_scheduler():
         dt = moscow_dt_now()
         print(f"now - {dt}")
 
-        if dt.hour == 9 and dt.minute >= 2:
+        if dt.hour == 9 and dt.minute >= 3:
             break
 
         await asyncio.sleep(60)

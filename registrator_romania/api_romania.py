@@ -659,7 +659,7 @@ async def registration(
     report_tasks = []
     successfully_registered = []
     queue = asyncio.Queue()
-    dbsession = get_session()
+    # dbsession = get_session()
 
     async def update_proxy_list():
         nonlocal proxies
@@ -675,11 +675,11 @@ async def registration(
         except asyncio.CancelledError:
             pass
 
-    async def update_users_data():
-        nonlocal users_data
-        while True:
-            users_data = await get_list_users(dbsession)
-            await asyncio.sleep(3)
+    # async def update_users_data():
+    #     nonlocal users_data
+    #     while True:
+    #         users_data = await get_list_users(dbsession)
+    #         await asyncio.sleep(3)
 
     do_check_places = False
 
@@ -751,7 +751,7 @@ async def registration(
                     api.is_success_registration(html)
                     and first_user not in successfully_registered
                 ):
-                    await remove_user(dbsession, first_user)
+                    # await remove_user(dbsession, first_user)
                     successfully_registered.append(first_user)
                     users_for_registrate.remove(first_user)
                 else:
@@ -846,7 +846,7 @@ async def registration(
                     )
                 )
                 successfully_registered.append(user_data)
-                await remove_user(dbsession, user_data)
+                # await remove_user(dbsession, user_data)
 
             if len(successfully_registered) >= len(users_data):
                 break
@@ -856,7 +856,7 @@ async def registration(
 
     do_check_places = False
     task = asyncio.create_task(update_proxy_list())
-    asyncio.create_task(update_users_data())
+    # asyncio.create_task(update_users_data())
 
     while len(pool.proxies) < 25:
         print(f"Wait for 25 proxies, now we have {len(pool.proxies)} proxies")
@@ -925,13 +925,13 @@ async def start_registration_with_proccess(
 
 async def main():
     tip_formular = 4
-    tip_formular = 3
+    # tip_formular = 3
     moscow_dt = moscow_dt_now()
     registration_date = datetime(
         year=moscow_dt.year,
         month=11,
-        # day=datetime.now().day,
-        day=23,
+        day=datetime.now().day,
+        # day=23,
         # year=moscow_dt.year,
         # month=10,
         # day=23,
@@ -960,7 +960,7 @@ async def main():
     #     f"Total users - {len(users_data)}, {len(filtered_us_data)} not registered yet"
     # )
     # users_data = filtered_us_data
-    users_data = generate_fake_users_data(40)
+    # users_data = generate_fake_users_data(40)
 
     await registration(tip_formular, registration_date, users_data)
     # await start_registration_with_proccess(

@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-v0
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONPATH=/app
+      - mode=${mode}
+      - async_requests_num=${async_requests_num}
+      - use_shuffle=${use_shuffle}
+      - stop_time=${stop_time}
+      - start_time=${start_time}
+      - registration_date=${registration_date}
+      - save_logs=${save_logs}
+      - users_file=${users_file}
+      - tip_formular=${tip_formular}

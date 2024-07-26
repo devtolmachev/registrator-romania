@@ -8,6 +8,7 @@ videos/
 spr.json
 *.html
 .*~lock.*
+registrations*
 
 # C extensions
 *.so

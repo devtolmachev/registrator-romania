@@ -128,6 +128,7 @@ HELP_TIP_FORMULAR = f"""
 async def run_docker_compose(containers: int, env_vars: dict):
     command = f"docker compose -f docker-compose-v0.yml up --build --scale app={containers}"
     shell = True
+    shell = False
 
     if platform.system() != "Windows":
         shell = False

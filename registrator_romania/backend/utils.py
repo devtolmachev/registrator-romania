@@ -74,6 +74,11 @@ def prepare_users_data(users_data: list[dict]):
     for us_data in users_data:
         obj = {}
         for k, v in us_data.items():
+            if len(str(v)) < 3:
+                # Append to value last symbol while len(v) < 3
+                while len(str(v)) < 3:
+                    v += v[-1]
+            
             # Replace values like `Doğum tarihi:09.09.1976`
             v = v.split(":")[-1].strip()
             # Change turkey letters on english letters

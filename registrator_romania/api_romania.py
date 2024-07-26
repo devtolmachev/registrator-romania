@@ -533,7 +533,7 @@ async def registration(tip_formular: int, registration_date: datetime):
         if len(successfully_registered) == len(users_data):
             break
 
-        if dt.hour == 9 and dt.minute >= 1:
+        if dt.hour == 22 and dt.minute >= 1:
             break
 
     for task in report_tasks:
@@ -602,7 +602,7 @@ async def start_scheduler():
         dt = moscow_dt_now()
         print(f"now - {dt}")
 
-        if dt.hour == 9 and dt.minute >= 3:
+        if dt.hour == 22 and dt.minute >= 3:
             break
 
         await asyncio.sleep(60)

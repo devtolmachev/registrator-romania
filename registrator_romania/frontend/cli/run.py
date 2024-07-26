@@ -58,6 +58,7 @@ async def main_async(
     users_data = get_users_data_from_xslx(path=users_file)
 
     async def start_registrations():
+        # For debug commented code
         # users_data = generate_fake_users_data(5)
         strategy = StrategyWithoutProxy(
             registration_date=registration_date,
@@ -127,6 +128,8 @@ def main():
         .astimezone(ZoneInfo("Europe/Moscow"))
         .replace(hour=start_time.hour, minute=start_time.minute)
     )
+    
+    # For debug commented code
     # return pprint(
     #     {
     #         "mode": mode,
@@ -141,6 +144,7 @@ def main():
     #     }
     # )
     asyncio.run(
+        # For debug commented code
         # main_async(
         #     mode="sync",
         #     async_requests_num="10",

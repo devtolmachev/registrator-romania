@@ -10,4 +10,4 @@ RUN poetry install --no-root --no-interaction --no-ansi
 
 COPY . /app
 
-ENTRYPOINT [ "python", "registrator_romania/frontend/cli/run.py" ]
+ENTRYPOINT [ "python", "registrator_romania/cli/run.py" ]

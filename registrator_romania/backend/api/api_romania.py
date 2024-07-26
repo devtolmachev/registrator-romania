@@ -9,7 +9,6 @@ import aiohttp
 import bs4
 from pyjsparser import parse
 import ua_generator
-from pypasser import reCaptchaV3
 from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 from registrator_romania.backend.net.aiohttp_ext import AiohttpSession
 from registrator_romania.backend.proxies.autopool import AutomaticProxyPool
@@ -152,11 +151,13 @@ class APIRomania:
                     return
 
                 return results[0]
-            except AIOHTTP_NET_ERRORS as e:
+            except AIOHTTP_NET_ERRORS:
                 pass
 
     async def get_captcha_token(self):
         """Async get and return data for `g-recaptcha-response` field."""
+        from pypasser import reCaptchaV3
+
         return await asyncio.to_thread(reCaptchaV3, self.CAPTCHA_URL)
 
     def get_error_registration_as_text(self, html_code: str) -> str:
@@ -423,7 +424,8 @@ class APIRomania:
         proxy: str = None,
         queue: asyncio.Queue = None,
     ):
-        g_recaptcha_response = await self.get_captcha_token()
+        # g_recaptcha_response = await self.get_captcha_token()
+        g_recaptcha_response = await self.get_recaptcha_token()
         if not g_recaptcha_response:
             return
         data = {

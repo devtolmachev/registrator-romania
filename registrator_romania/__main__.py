@@ -1,13 +1,13 @@
 import asyncio
 from datetime import datetime
 import os
-import platform
-import subprocess
 import shlex
 import sys
+from zoneinfo import ZoneInfo
 import click
 
 from registrator_romania.backend.utils import get_users_data_from_xslx
+from registrator_romania.cli import run
 
 
 TARGET_URL = "https://programarecetatenie.eu/programare_online"
@@ -126,43 +126,34 @@ HELP_TIP_FORMULAR = f"""
 
 
 async def run_docker_compose(containers: int, env_vars: dict):
-    command = f"docker compose -f docker-compose-v0.yml up --build --scale app={containers}"
-    shell = True
-    shell = False
+    command = (
+        "docker compose -f docker-compose-v0.yml up "
+        f"--scale app={containers} "
+    )
+    command += "--build"
 
-    if platform.system() != "Windows":
-        shell = False
-        # command = command.split()  # For sync process
-
-    command_list = command if shell else shlex.split(command)
+    command_list = shlex.split(command)
 
     env = os.environ.copy()
     env.update(env_vars)
 
-    async def read_stream(stream, output_func):
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            output_func(line.decode())
-
     process = await asyncio.create_subprocess_exec(
         *command_list,
-        shell=shell,
+        shell=False,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
         text=False,
     )
 
-    async def read_stream(stream, stderr: bool = False):
+    async def read_stream(stream: asyncio.StreamReader, stderr: bool = False):
         while True:
             line = await stream.readline()
             if not line:
                 break
             print(
                 line.decode(),
-                file=None if not stderr else sys.stderr,
+                file=sys.stdout if not stderr else sys.stderr,
                 end="",
             )
 
@@ -172,22 +163,6 @@ async def run_docker_compose(containers: int, env_vars: dict):
     )
 
     await process.wait()
-
-    # with subprocess.Popen(
-    #     command,
-    #     shell=shell,
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.PIPE,
-    #     env=env,
-    #     text=True,
-    # ) as process:
-    #     try:
-    #         for line in iter(process.stderr.readline, ""):
-    #             print(line, end="")
-    #         process.stderr.close()
-    #         process.wait()
-    #     except subprocess.CalledProcessError as e:
-    #         print(f"Error: {e.stderr}")
 
 
 @click.command()
@@ -253,7 +228,30 @@ def main(
         "users_file": users_file,
         "tip_formular": tip_formular,
     }
+
     asyncio.run(run_docker_compose(containers=int(containers), env_vars=env))
+
+    stop_time = (
+        datetime.now()
+        .astimezone(ZoneInfo("Europe/Moscow"))
+        .replace(
+            hour=int(stop_time.split(":")[0]),
+            minute=int(stop_time.split(":")[1]),
+        )
+    )
+
+    async def wait():
+        while True:
+            await asyncio.sleep(30)
+            curr_dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
+            if (
+                curr_dt.hour == stop_time.hour
+                and curr_dt.minute <= stop_time.minute
+            ):
+                break
+
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(wait())
 
 
 if __name__ == "__main__":

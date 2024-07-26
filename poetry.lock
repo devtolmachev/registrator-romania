@@ -2057,6 +2057,22 @@ files = [
 ]
 
 [[package]]
+name = "registrator"
+version = "1.0.0"
+description = ""
+optional = false
+python-versions = "*"
+files = []
+develop = true
+
+[package.dependencies]
+click = "*"
+
+[package.source]
+type = "directory"
+url = "registrator_romania"
+
+[[package]]
 name = "requests"
 version = "2.32.3"
 description = "Python HTTP for Humans."
@@ -2582,4 +2598,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "74e7ae198446af72ad15f9ed8a54629f1ffe9cbb065b272691688f86bbb3c4d3"
+content-hash = "acd5c5cbd65ad30ea5e630cfcfc2bee700fcf6b96b5845513494c596cd5aeaa5"

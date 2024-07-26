@@ -84,17 +84,17 @@ class UsersService:
         cmd = (
             f"LOCK TABLE {self._model.__tablename__} IN ACCESS EXCLUSIVE MODE;"
         )
-        self._trans = await self._session.begin()
-        await self._session.execute(text(cmd))
+        self._conn = await self._session.connection()
+        await self._conn.execute(text(cmd))
         return self
 
     async def __aexit__(self, type, value, traceback):
         if value:
-            await self._session.rollback()
-            logger.exception(value)
+            await self._conn.rollback()
         else:
-            await self._session.commit()
-
+            await self._conn.commit()
+        
+        await self._conn.close()
         return True
 
     async def _execute_stmt(

@@ -59,7 +59,7 @@ async def main_async(
 
     async def start_registrations():
         # For debug commented code
-        # users_data = generate_fake_users_data(5)
+        # users_data = generate_fake_users_data(20)
         strategy = StrategyWithoutProxy(
             registration_date=registration_date,
             tip_formular=tip_formular,
@@ -77,17 +77,22 @@ async def main_async(
             correctly = await database_prepared_correctly(
                 reg_dt=registration_date, users_data=users_data
             )
+                
         if not correctly:
-            await prepare_database(reg_dt=registration_date, users_data=users_data)
+            async with asyncio.timeout(7):
+                await prepare_database(
+                    reg_dt=registration_date, users_data=users_data
+                )
+
+        async with asyncio.timeout(10):
+            async with UsersService() as service:
+                users_data = await service.get_users_by_reg_date(
+                    registration_date=registration_date
+                )
     except asyncio.TimeoutError:
         pass
     except Exception as e:
         logger.exception(e)
-    else:
-        async with UsersService() as service:
-            users_data = await service.get_users_by_reg_date(
-                registration_date=registration_date
-            )
 
     logging.getLogger("apscheduler").setLevel(level=logging.ERROR)
     scheduler = AsyncIOScheduler()
@@ -95,13 +100,14 @@ async def main_async(
     scheduler.start()
 
     while True:
-        await asyncio.sleep(60)
         dt_now = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
+        await asyncio.sleep(60)
         if dt_now.hour == stop_time.hour and dt_now.minute >= stop_time.minute:
             break
 
 
 def main():
+    print("start main")
     mode = os.environ["mode"]
     async_requests_num = os.environ["async_requests_num"]
     use_shuffle = os.environ["use_shuffle"]
@@ -128,7 +134,7 @@ def main():
         .astimezone(ZoneInfo("Europe/Moscow"))
         .replace(hour=start_time.hour, minute=start_time.minute)
     )
-    
+
     # For debug commented code
     # return pprint(
     #     {

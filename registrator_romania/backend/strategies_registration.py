@@ -91,24 +91,20 @@ class StrategyWithoutProxy:
         api = self._api
         reg_dt = self._registration_date
 
-        tasks = [
-            (
-                api.make_registration(
-                    user_data=user_data,
-                    registration_date=reg_dt,
-                    tip_formular=self._tip_formular,
-                    queue=queue,
-                ),
-                user_data,
+        async def registrate(user_data: dict):
+            html = await api.make_registration(
+                user_data=user_data,
+                registration_date=reg_dt,
+                tip_formular=self._tip_formular,
             )
-            for user_data in users_data
-        ]
+            await self.post_registrate(
+                user_data=user_data, html=html, queue=queue
+            )
 
+        tasks = [registrate(user_data) for user_data in users_data]
         for chunk in divide_list(tasks, divides=self._async_requests_num):
             try:
-                await asyncio.gather(
-                    *[i[0] for i in chunk], return_exceptions=True
-                )
+                await asyncio.gather(*chunk, return_exceptions=True)
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
@@ -126,8 +122,11 @@ class StrategyWithoutProxy:
 
         if api.is_success_registration(html):
             try:
-                async with self._db as db:
-                    await db.remove_user(user_data)
+                async with asyncio.timeout(5):
+                    async with self._db as db:
+                        await db.remove_user(user_data)
+            except asyncio.TimeoutError:
+                pass
             except Exception as e:
                 logger.exception(e)
 
@@ -145,8 +144,11 @@ class StrategyWithoutProxy:
             if error.count("Deja a fost înregistrată o programare"):
                 await queue.put((user_data.copy(), html))
                 try:
-                    async with self._db as db:
-                        await db.remove_user(user_data)
+                    async with asyncio.timeout(5):
+                        async with self._db as db:
+                            await db.remove_user(user_data)
+                except asyncio.TimeoutError:
+                    pass
                 except Exception as e:
                     logger.exception(e)
 
@@ -168,7 +170,8 @@ class StrategyWithoutProxy:
                     tip_formular=self._tip_formular,
                 )
                 await self.post_registrate(user_data, html, queue)
-
+            except AIOHTTP_NET_ERRORS:
+                pass
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
@@ -185,64 +188,78 @@ class StrategyWithoutProxy:
         while True:
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
-            places = await api.get_free_places_for_date(
-                tip_formular=self._tip_formular,
-                month=reg_dt.month,
-                day=reg_dt.day,
-                year=reg_dt.year,
-            )
-            if not places:
-                logger.debug(f"{places} places")
-                continue
 
-            users_for_registrate = [
-                u
-                for u in self._users_data.copy()
-                if u not in successfully_registered
-            ]
-            if self._use_shuffle:
-                random.shuffle(users_for_registrate)
+            try:
+                async with asyncio.timeout(5):
+                    places = await api.get_free_places_for_date(
+                        tip_formular=self._tip_formular,
+                        month=reg_dt.month,
+                        day=reg_dt.day,
+                        year=reg_dt.year,
+                    )
+                    if not places:
+                        logger.debug(f"{places} places")
+                        continue
 
-            if self._mode == "sync":
-                await self.sync_registrations(
-                    users_data=users_for_registrate, queue=queue
-                )
+                users_for_registrate = [
+                    u
+                    for u in self._users_data.copy()
+                    if u not in successfully_registered
+                ]
+                if self._use_shuffle:
+                    random.shuffle(users_for_registrate)
 
-            elif self._mode == "async":
-                await self.async_registrations(
-                    users_data=users_for_registrate, queue=queue
-                )
+                if self._mode == "sync":
+                    await self.sync_registrations(
+                        users_data=users_for_registrate, queue=queue
+                    )
 
-            while not queue.empty():
-                user_data, html = await queue.get()
-                successfully_registered.append(user_data)
+                elif self._mode == "async":
+                    await self.async_registrations(
+                        users_data=users_for_registrate, queue=queue
+                    )
 
-                first_name, last_name = (
-                    user_data["Prenume Pasaport"],
-                    user_data["Nume Pasaport"],
-                )
+                while not queue.empty():
+                    user_data, html = await queue.get()
+                    successfully_registered.append(user_data)
 
-                fn = f"success-{first_name}_{last_name}.html"
-                path = Path().joinpath(dirname, fn)
-                Path().mkdir(dirname, exist_ok=True)
+                    first_name, last_name = (
+                        user_data["Prenume Pasaport"],
+                        user_data["Nume Pasaport"],
+                    )
 
-                async with aiofiles.open(str(path), "w") as f:
-                    await f.write(html)
+                    fn = f"success-{first_name}_{last_name}.html"
+                    path = Path().joinpath(dirname, fn)
+                    Path(dirname).mkdir(exist_ok=True)
 
-            if len(successfully_registered) >= len(self._users_data.copy()):
-                break
+                    async with aiofiles.open(str(path), "w") as f:
+                        await f.write(html)
 
-            if (
-                now.hour == self._stop_when[0]
-                and now.minute >= self._stop_when[1]
-            ):
-                break
+                if (
+                    len(successfully_registered) >= len(self._users_data.copy())
+                    or not users_for_registrate
+                ):
+                    break   
 
-        fn = f"successfully-registered.csv"
-        path = Path().joinpath(dirname, fn)
+                if (
+                    now.hour == self._stop_when[0]
+                    and now.minute >= self._stop_when[1]
+                ):
+                    break
 
-        df = DataFrame(successfully_registered)
-        df.to_csv(str(path), index=False)
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                logger.exception(e)
+
+        try:
+            fn = f"successfully-registered.csv"
+            path = Path().joinpath(dirname, fn)
+
+            df = DataFrame(successfully_registered)
+            df.to_csv(str(path), index=False)
+        except Exception as e:
+            logger.exception(e)
 
     async def update_users_list(self):
         while True:
@@ -251,6 +268,8 @@ class StrategyWithoutProxy:
                     self._users_data = await db.get_users_by_reg_date(
                         self._registration_date
                     )
+            except asyncio.TimeoutError:
+                pass
             except Exception as e:
                 logger.exception(e)
             await asyncio.sleep(3)
@@ -300,6 +319,8 @@ class StrategyWithoutProxy:
                     await db.add_user(
                         user_data, registration_date=self._registration_date
                     )
+        except asyncio.TimeoutError:
+            pass
         except Exception as e:
             logger.exception(e)
 
@@ -334,14 +355,13 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 4
-    reg_date = datetime(year=2024, month=11, day=26)
+    tip = 2
+    reg_date = datetime(year=2024, month=11, day=25)
 
-    # data = generate_fake_users_data(5)
-    async with UsersService() as service:
-        data = await service.get_users_by_reg_date(reg_date)
+    data = generate_fake_users_data(50)
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
+
     # if not await database_prepared_correctly(reg_date, data):
     #     await prepare_database(reg_date, data)
 

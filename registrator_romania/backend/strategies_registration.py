@@ -334,10 +334,12 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 1
-    reg_date = datetime(year=2024, month=9, day=2)
+    tip = 4
+    reg_date = datetime(year=2024, month=11, day=26)
 
-    data = generate_fake_users_data(5)
+    # data = generate_fake_users_data(5)
+    async with UsersService() as service:
+        data = await service.get_users_by_reg_date(reg_date)
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
     # if not await database_prepared_correctly(reg_date, data):

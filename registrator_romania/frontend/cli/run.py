@@ -66,7 +66,7 @@ async def main_async(
             use_shuffle=use_shuffle,
             logging=save_logs,
             users_data=users_data,
-            stop_when=stop_time,
+            stop_when=[stop_time.hour, stop_time.minute],
             mode=mode,
             async_requests_num=async_requests_num,
         )

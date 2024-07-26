@@ -125,8 +125,11 @@ class StrategyWithoutProxy:
             return
 
         if api.is_success_registration(html):
-            async with self._db as db:
-                await db.remove_user(user_data)
+            try:
+                async with self._db as db:
+                    await db.remove_user(user_data)
+            except Exception as e:
+                logger.exception(e)
 
             msg = f"successfully registrate {first_name} {last_name}"
             if self._logging:
@@ -141,8 +144,11 @@ class StrategyWithoutProxy:
 
             if error.count("Deja a fost înregistrată o programare"):
                 await queue.put((user_data.copy(), html))
-                async with self._db as db:
-                    await db.remove_user(user_data)
+                try:
+                    async with self._db as db:
+                        await db.remove_user(user_data)
+                except Exception as e:
+                    logger.exception(e)
 
             msg = f"{first_name} {last_name} - {error}"
             if self._logging:
@@ -240,10 +246,13 @@ class StrategyWithoutProxy:
 
     async def update_users_list(self):
         while True:
-            async with self._db as db:
-                self._users_data = await db.get_users_by_reg_date(
-                    self._registration_date
-                )
+            try:
+                async with self._db as db:
+                    self._users_data = await db.get_users_by_reg_date(
+                        self._registration_date
+                    )
+            except Exception as e:
+                logger.exception(e)
             await asyncio.sleep(3)
 
     async def get_unregisterer_users(
@@ -285,11 +294,14 @@ class StrategyWithoutProxy:
         return unregistered_users
 
     async def add_users_to_db(self):
-        async with self._db as db:
-            for user_data in self._users_data:
-                await db.add_user(
-                    user_data, registration_date=self._registration_date
-                )
+        try:
+            async with self._db as db:
+                for user_data in self._users_data:
+                    await db.add_user(
+                        user_data, registration_date=self._registration_date
+                    )
+        except Exception as e:
+            logger.exception(e)
 
 
 async def prepare_database(reg_dt: datetime, users_data: list[dict]):

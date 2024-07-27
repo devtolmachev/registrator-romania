@@ -32,6 +32,7 @@ async def main_async(
     save_logs: bool,
     users_file: str,
     tip_formular: int,
+    proxy_provider_url: str | None,
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{dt.strftime("%d.%m.%Y")}"
@@ -69,6 +70,7 @@ async def main_async(
             stop_when=[stop_time.hour, stop_time.minute],
             mode=mode,
             async_requests_num=async_requests_num,
+            residental_proxy_url=proxy_provider_url if proxy_provider_url else None,
         )
         await strategy.start()
 
@@ -77,7 +79,7 @@ async def main_async(
             correctly = await database_prepared_correctly(
                 reg_dt=registration_date, users_data=users_data
             )
-                
+
         if not correctly:
             async with asyncio.timeout(7):
                 await prepare_database(
@@ -94,16 +96,19 @@ async def main_async(
     except Exception as e:
         logger.exception(e)
 
+    tz = ZoneInfo("Europe/Moscow")
     logging.getLogger("apscheduler").setLevel(level=logging.ERROR)
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(start_registrations, "cron", start_date=start_time)
+    scheduler.add_job(
+        start_registrations, "cron", start_date=start_time, timezone=tz
+    )
     scheduler.start()
 
     while True:
-        dt_now = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
+        dt_now = datetime.now().astimezone(tz)
         await asyncio.sleep(60)
-        if dt_now.hour == stop_time.hour and dt_now.minute >= stop_time.minute:
-            break
+        if dt_now.hour == stop_time.hour and dt_now.minute >= dt.minute:
+            return
 
 
 def main():
@@ -117,12 +122,14 @@ def main():
     save_logs = os.environ["save_logs"]
     users_file = os.environ["users_file"]
     tip_formular = os.environ["tip_formular"]
+    proxy_provider_url = os.environ["proxy_provider_url"]
 
     start_time = datetime.now().strptime(start_time, "%H:%M")
     stop_time = datetime.strptime(stop_time, "%H:%M")
     registration_date = datetime.strptime(registration_date, "%d.%m.%Y")
     use_shuffle = True if "yes" else False
     save_logs = True if "yes" else False
+    proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
 
     start_time = (
         datetime.now()
@@ -190,6 +197,7 @@ def main():
             save_logs=save_logs,
             users_file=users_file,
             tip_formular=tip_formular,
+            proxy_provider_url=proxy_provider_url,
         )
     )
 

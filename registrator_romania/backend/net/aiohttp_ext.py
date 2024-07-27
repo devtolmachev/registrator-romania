@@ -18,7 +18,7 @@ class AiohttpSession:
         if connector is None:
             connector = self.generate_connector()
 
-        timeout = aiohttp.ClientTimeout(total_timeout)
+        timeout = aiohttp.ClientTimeout(connect=total_timeout)
         session = aiohttp.ClientSession(
             trust_env=True,
             connector=connector,

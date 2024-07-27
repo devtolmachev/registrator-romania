@@ -443,17 +443,14 @@ class APIRomania:
             "honeypot": "",
             "g-recaptcha-response": g_recaptcha_response,
         }
-
-        use_proxy = bool(proxy)
-        session = await self.get_session(with_proxy_if_exists=use_proxy)
+        session = await self.get_session(with_proxy_if_exists=False)
         session._default_headers = self.headers_registration_url
         async with session:
             try:
-                async with asyncio.timeout(session.timeout.total):
-                    async with session.post(
-                        self.MAIN_URL, data=data, proxy=proxy
-                    ) as resp:
-                        html = await resp.text()
+                async with session.post(
+                    self.MAIN_URL, data=data, proxy=proxy
+                ) as resp:
+                    html = await resp.text()
 
                 if not isinstance(html, str):
                     return

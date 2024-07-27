@@ -9,5 +9,7 @@ RUN poetry config virtualenvs.create false
 RUN poetry install --no-root --no-interaction --no-ansi
 
 COPY . /app
+RUN cp /app/crts/ca.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
 
 ENTRYPOINT [ "python", "registrator_romania/cli/run.py" ]

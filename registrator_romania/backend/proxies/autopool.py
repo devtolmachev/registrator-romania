@@ -12,11 +12,13 @@ import traceback
 from typing import Type
 
 import aiohttp.client_exceptions
+import httpx
 from loguru import logger
 import aiohttp
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from registrator_romania.backend.net.aiohttp_ext import AiohttpSession
+from registrator_romania.backend.net.httpx_ext import HTTPX_NET_ERRORS
 from registrator_romania.backend.proxies import providers
 from registrator_romania.backend.utils import divide_list
 
@@ -43,30 +45,33 @@ async def check_proxy(
 ) -> dict:
     url = "https://api.ipify.org"
 
-    async with AiohttpSession().generate(
-        close_connector=close_connector,
-        connector=connector,
-        total_timeout=timeout or 15,
-    ) as session:
+    # async with AiohttpSession().generate(
+    #     close_connector=close_connector,
+    #     connector=connector,
+    #     total_timeout=timeout or 15,
+    # ) as session:
+    async with httpx.AsyncClient(proxy=httpx.Proxy(proxy)) as session:
         try:
             start = datetime.datetime.now()
-            async with session.get(url, proxy=proxy) as resp:
-                result = (
-                    await resp.text(),
-                    proxy,
-                    datetime.datetime.now() - start,
-                )
-                if queue:
-                    await asyncio.to_thread(queue.put, result, block=False)
-                return result
-        except AIOHTTP_NET_ERRORS:
+            # async with session.get(url, proxy=proxy) as resp:
+            resp = await session.get(url)
+            result = (
+                resp.text,
+                proxy,
+                datetime.datetime.now() - start,
+            )
+            if queue:
+                await asyncio.to_thread(queue.put, result, block=False)
+            return result
+        except (AIOHTTP_NET_ERRORS, HTTPX_NET_ERRORS):
             return tuple()
         except UnicodeError:
             return tuple()
         except Exception as e:
             tb = traceback.format_exc()
             msg = f"check_proxy got an error {e} with traceback:\n{tb}"
-            logger.exception(msg)
+            # logger.exception(msg)
+            print(f"{e.__class__.__name__}: {e}")
             return tuple()
 
 
@@ -323,9 +328,8 @@ class AutomaticProxyPool:
             if not proxy and proxy != "False":  # If bool(proxy) == False
                 async with session._lock:
                     proxy = self_class.get_best_proxy_by_timeout()
-                kwargs["proxy"] = proxy
+                    kwargs["proxy"] = proxy
 
-                async with session._lock:
                     if not self_class._urls.get(url):
                         # If we not have any proxies for this site, we are
                         # collect them
@@ -405,6 +409,8 @@ class AutomaticProxyPool:
                             self_class._urls[url] = new_list
                     except (ValueError, ValueError):
                         pass
+                    except RuntimeError:
+                        pass
 
                 if proxy and result.status != 200:
                     self_class.proxy_not_working(proxy=proxy)
@@ -419,21 +425,27 @@ class AutomaticProxyPool:
                         del self_class._timeout_proxies[proxy]
 
                 if url in self_class._urls:
-                    async with session._lock:
-                        proxy_record = [
-                            record
-                            for record in self_class._urls[url]
-                            if record["proxy"] == proxy
-                        ]
+                    try:
+                        async with session._lock:
+                            proxy_record = [
+                                record
+                                for record in self_class._urls[url]
+                                if record["proxy"] == proxy
+                            ]
 
-                        if proxy_record:
-                            i = self_class._urls[url].index(proxy_record[0])
-                            del self_class._urls[url][i]
+                            if proxy_record:
+                                i = self_class._urls[url].index(proxy_record[0])
+                                del self_class._urls[url][i]
+                    except RuntimeError:
+                        pass
 
                 raise e
             finally:
                 if proxy != "False" and session._lock.locked():
-                    session._lock.release()
+                    try:
+                        session._lock.release()
+                    except Exception:
+                        pass
 
         session._request_ = session._request
         session._request = _request

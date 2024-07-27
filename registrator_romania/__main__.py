@@ -125,6 +125,13 @@ HELP_TIP_FORMULAR = f"""
 """
 
 
+HELP_PROXY_PROVIDER_URL = """
+Передайте в этот параметр ссылку по которой будет доступен proxy для 
+регистраций.
+
+"""
+
+
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
         "docker compose -f docker-compose-v0.yml up "
@@ -136,7 +143,6 @@ async def run_docker_compose(containers: int, env_vars: dict):
 
     env = os.environ.copy()
     env.update(env_vars)
-
     process = await asyncio.create_subprocess_exec(
         *command_list,
         shell=False,
@@ -180,6 +186,7 @@ async def run_docker_compose(containers: int, env_vars: dict):
 @click.option("--save_logs", default="yes", help=HELP_SAVE_LOGS)
 @click.option("--users_file", help=HELP_USERS_FILE)
 @click.option("--tip_formular", help=HELP_TIP_FORMULAR)
+@click.option("--proxy_provider_url", required="", help=HELP_PROXY_PROVIDER_URL)
 def main(
     mode: str,
     containers: int,
@@ -191,6 +198,7 @@ def main(
     save_logs: str,
     users_file: str,
     tip_formular: int,
+    proxy_provider_url: str,
 ):
     assert str(
         tip_formular
@@ -218,6 +226,7 @@ def main(
     assert users_data, "Файл с пользователями неверный, произошла ошибка. Проверьте файл и повторите попытку"
 
     env = {
+        "proxy_provider_url": proxy_provider_url,
         "mode": mode,
         "async_requests_num": str(async_requests_num),
         "use_shuffle": use_shuffle,

@@ -17,3 +17,4 @@ services:
       - save_logs=${save_logs}
       - users_file=${users_file}
       - tip_formular=${tip_formular}
+      - proxy_provider_url=${proxy_provider_url}

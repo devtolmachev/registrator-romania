@@ -37,6 +37,9 @@ sqlalchemy = "^2.0.31"
 asyncpg = "^0.29.0"
 click = "^8.1.7"
 setuptools = "^71.1.0"
+scandir = "^1.10.0"
+faker = "^26.0.0"
+httpx = "^0.27.0"
 
 
 [build-system]

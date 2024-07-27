@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 import functools
 import os
+import ssl
 from pathlib import Path
 import platform
 import random
@@ -34,6 +35,7 @@ from registrator_romania.frontend.telegram_bot.alerting import (
 )
 from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
+ssl._create_default_https_context = ssl._create_unverified_context
 
 class StrategyWithoutProxy:
     def __init__(
@@ -47,13 +49,13 @@ class StrategyWithoutProxy:
         async_requests_num: int = 10,
         use_shuffle: bool = True,
         logging: bool = True,
+        residental_proxy_url: str = None,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
 
         self._api = APIRomania(debug=debug)
         self._db = UsersService()
-        self._sessiongenerator = AiohttpSession()
         self._users_data = users_data or []
         self._registration_date = registration_date
         self._tip_formular = int(tip_formular)
@@ -62,6 +64,7 @@ class StrategyWithoutProxy:
         self._async_requests_num = int(async_requests_num)
         self._use_shuffle = use_shuffle
         self._logging = logging
+        self._residental_proxy_url = residental_proxy_url
 
     async def start(self):
         if self._users_data:
@@ -90,12 +93,14 @@ class StrategyWithoutProxy:
     ):
         api = self._api
         reg_dt = self._registration_date
+        proxy = self._residental_proxy_url
 
         async def registrate(user_data: dict):
             html = await api.make_registration(
                 user_data=user_data,
                 registration_date=reg_dt,
                 tip_formular=self._tip_formular,
+                proxy=proxy,
             )
             await self.post_registrate(
                 user_data=user_data, html=html, queue=queue
@@ -161,6 +166,7 @@ class StrategyWithoutProxy:
     ):
         api = self._api
         reg_dt = self._registration_date
+        proxy = self._residental_proxy_url
 
         for user_data in users_data:
             try:
@@ -168,6 +174,7 @@ class StrategyWithoutProxy:
                     user_data,
                     registration_date=reg_dt,
                     tip_formular=self._tip_formular,
+                    proxy=proxy,
                 )
                 await self.post_registrate(user_data, html, queue)
             except AIOHTTP_NET_ERRORS:
@@ -239,7 +246,7 @@ class StrategyWithoutProxy:
                     len(successfully_registered) >= len(self._users_data.copy())
                     or not users_for_registrate
                 ):
-                    break   
+                    break
 
                 if (
                     now.hour == self._stop_when[0]
@@ -355,8 +362,8 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 2
-    reg_date = datetime(year=2024, month=11, day=25)
+    tip = 3
+    reg_date = datetime(year=2024, month=11, day=20)
 
     data = generate_fake_users_data(50)
     # async with UsersService() as service:
@@ -370,6 +377,8 @@ async def main():
         tip_formular=tip,
         users_data=data,
         mode="sync",
+        residental_proxy_url="https://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
+        async_requests_num=2,
     )
     await strategy.start()
 

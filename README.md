@@ -54,22 +54,23 @@ cd registrator-romania
 
 1. open terminal in root of repo
 
-2.  You should be create and fill file `.env` by example in `.env-example` file
-
-
-3. Switch branch on main (it need to 1 time)
+2. Switch branch on main (it need to 1 time)
 
 ```bash
 git checkout main
 ``` 
 
-4. Update the code
+3. Update the code
 
 ```bash
 git pull origin main
 ``` 
 
 ### Run app:
+
+0. You should be create and fill file `.env` by example in `.env-example` file
+
+
 1. Make sure the docker running!!!!!!!!!!!!!!
 2. type follow command in **ROOT OF PROJECT**!!!
 

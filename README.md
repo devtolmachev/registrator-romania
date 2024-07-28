@@ -70,9 +70,15 @@ git pull origin main
 
 0. You should be create and fill file `.env` by example in `.env-example` file
 
-
 1. Make sure the docker running!!!!!!!!!!!!!!
-2. type follow command in **ROOT OF PROJECT**!!!
+   
+2. Install dependencies in **ROOT OF PROJECT**!!!
+
+```bash
+poetry install --no-root
+```
+
+3. type follow command in **ROOT OF PROJECT**!!!
 
 ```bash
 poetry run python -m registrator_romania --help

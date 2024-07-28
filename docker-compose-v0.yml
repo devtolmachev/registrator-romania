@@ -7,7 +7,7 @@ services:
       - .:/app
     environment:
       - PYTHONPATH=/app
-      - PYTHONBUFFERED=1
+      - PYTHONUNBUFFERED=1
       - mode=${mode}
       - async_requests_num=${async_requests_num}
       - use_shuffle=${use_shuffle}

@@ -197,16 +197,19 @@ class StrategyWithoutProxy:
             await asyncio.sleep(1.5)
 
             try:
-                async with asyncio.timeout(5):
-                    places = await api.get_free_places_for_date(
-                        tip_formular=self._tip_formular,
-                        month=reg_dt.month,
-                        day=reg_dt.day,
-                        year=reg_dt.year,
-                    )
-                    if not places:
-                        logger.debug(f"{places} places")
-                        continue
+                try:
+                    async with asyncio.timeout(5):
+                        places = await api.get_free_places_for_date(
+                            tip_formular=self._tip_formular,
+                            month=reg_dt.month,
+                            day=reg_dt.day,
+                            year=reg_dt.year,
+                        )
+                        if not places:
+                            logger.debug(f"{places} places")
+                            continue
+                except asyncio.TimeoutError:
+                    pass
 
                 users_for_registrate = [
                     u
@@ -215,6 +218,7 @@ class StrategyWithoutProxy:
                 ]
                 if self._use_shuffle:
                     random.shuffle(users_for_registrate)
+                logger.debug(f"Start registration, we have {len(users_for_registrate)} users for registrate")
 
                 if self._mode == "sync":
                     await self.sync_registrations(

@@ -235,7 +235,7 @@ def main(
         "registration_date": registration_date,
         "save_logs": save_logs,
         "users_file": users_file,
-        "tip_formular": tip_formular,
+        "tip_formular": str(tip_formular),
     }
 
     asyncio.run(run_docker_compose(containers=int(containers), env_vars=env))

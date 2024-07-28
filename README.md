@@ -16,7 +16,7 @@ After install type follow commands:
 ```
 pip -V  # If your platform MacOs, type pip3
 
-python -V  # If your platform MacOs, type python
+python -V  # If your platform MacOs, type python3
 ```
 
 You should see version of python and pip, if you don't see versions, maybe you should reinstall it
@@ -32,6 +32,8 @@ poetry -V
 ```
 
 you should see version of poetry.
+
+4. You should be create and fill file `.env` by example in `.env-example` file
 
 
 ## How to run cli app locally

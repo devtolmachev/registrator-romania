@@ -11,7 +11,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 import aiofiles
 from loguru import logger
-from pandas import DataFrame
+from pandas import DataFrame, date_range
 
 from registrator_romania.backend.api.api_romania import APIRomania
 from registrator_romania.backend.database.api import (
@@ -37,12 +37,34 @@ from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
+
 class StrategyWithoutProxy:
+    """Strategy of registrations.
+
+    Args:
+        registration_dates (list[datetime, datetime]): range of dates to
+            make registrations
+        tip_formular (int): tip formular value
+        users_data (list[dict], optional): list of users data (dict)
+            to registrate. Defaults to None.
+        stop_when (tuple[int, int], optional): time to stop process
+            registrations. Defaults to None.
+        mode (Literal["sync", "async"], optional): mode of registration
+            process. Defaults to "sync".
+        async_requests_num (int, optional): if mode equals "async" which
+            requests should be asynchronously. Defaults to 10.
+        use_shuffle (bool, optional): use `random.shuffle` of users data list,
+            after each registrations. Defaults to True.
+        logging (bool, optional): whether to call `logger.`. Defaults to True.
+        residental_proxy_url (str, optional): url to get proxy from external
+            pool, it param will passed to make registration api call.
+            Defaults to None.
+    """
+
     def __init__(
         self,
-        registration_date: datetime,
+        registration_dates: list[datetime, datetime],
         tip_formular: int,
-        debug: bool = False,
         users_data: list[dict] = None,
         stop_when: tuple[int, int] = None,
         mode: Literal["async", "sync"] = "sync",
@@ -51,13 +73,16 @@ class StrategyWithoutProxy:
         logging: bool = True,
         residental_proxy_url: str = None,
     ) -> None:
+        assert len(registration_dates) == 2 and all(
+            isinstance(r, datetime) for r in registration_dates
+        ), "Param registration_dates must be list of 2 datetime objects"
         if not stop_when:
             stop_when = [9, 2]
 
-        self._api = APIRomania(debug=debug)
+        self._api = APIRomania()
         self._db = UsersService()
         self._users_data = users_data or []
-        self._registration_date = registration_date
+        self._registration_dates = registration_dates
         self._tip_formular = int(tip_formular)
         self._stop_when = stop_when
         self._mode = mode
@@ -67,6 +92,13 @@ class StrategyWithoutProxy:
         self._residental_proxy_url = residental_proxy_url
 
     async def start(self):
+        """Enrypoint of the strategy. Configure it in __init__ method, and
+        call this method to start.
+
+        At first we try to get unregister users from API, and write result to
+        remote database, then we create task to update users list (removes the
+        registered users), and at end we start registrations
+        """
         if self._users_data:
             try:
                 unregistered_users = await self.get_unregisterer_users()
@@ -88,28 +120,72 @@ class StrategyWithoutProxy:
     def _get_dt_now(self) -> datetime:
         return datetime.now().astimezone(tz=ZoneInfo("Europe/Moscow"))
 
+    def _get_registration_dates(self) -> list[datetime]:
+        """Get list of dates, to make registrations"""
+        return (
+            date_range(
+                start=self._registration_dates[0],
+                end=self._registration_dates[-1],
+            )
+            .to_pydatetime()
+            .tolist()
+        )
+
     async def async_registrations(
         self, users_data: list[dict], queue: asyncio.Queue
     ):
+        """Send requests to API for registrate users.
+
+        How it works? At start creates list of tasks, to registrate users.
+        The list is split into `async_requests_num` chunks, and run by asyncio
+        gather. Into task function we create list of `asyncio.create_task`
+        for registration of registration dates, and do:
+
+        >>> for task in in tasks:
+        ...    html = await task
+        ...    await self.post_registrate(html, ...)
+
+        Args:
+            users_data (list[dict]): users data to registrate
+            queue (asyncio.Queue): success registration will put into queue
+        """
         api = self._api
-        reg_dt = self._registration_date
+        reg_dts = self._get_registration_dates()
         proxy = self._residental_proxy_url
 
         async def registrate(user_data: dict):
-            html = await api.make_registration(
-                user_data=user_data,
-                registration_date=reg_dt,
-                tip_formular=self._tip_formular,
-                proxy=proxy,
-            )
-            await self.post_registrate(
-                user_data=user_data, html=html, queue=queue
-            )
+            """Make registration(s).
+
+            Call API to registrate user on registration dates
+
+            Args:
+                user_data (dict): user data
+            """
+            tasks = [
+                asyncio.create_task(
+                    api.make_registration(
+                        user_data=user_data,
+                        registration_date=reg_dt,
+                        tip_formular=self._tip_formular,
+                        proxy=proxy,
+                    )
+                )
+                for reg_dt in reg_dts
+            ]
+
+            for task in tasks:
+                html = await task
+                await self.post_registrate(
+                    user_data=user_data, html=html, queue=queue
+                )
 
         tasks = [registrate(user_data) for user_data in users_data]
         for chunk in divide_list(tasks, divides=self._async_requests_num):
             try:
-                await asyncio.gather(*chunk, return_exceptions=True)
+                async with asyncio.timeout(10):
+                    await asyncio.gather(*chunk, return_exceptions=True)
+            except asyncio.TimeoutError:
+                continue
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
@@ -118,6 +194,13 @@ class StrategyWithoutProxy:
     async def post_registrate(
         self, user_data: dict, html: str, queue: asyncio.Queue
     ):
+        """This func we call after request to registration.
+
+        Args:
+            user_data (dict): user data we tried to register
+            html (str): response of api to make registration
+            queue (asyncio.Queue): into queue we put success registration
+        """
         first_name = user_data["Prenume Pasaport"]
         last_name = user_data["Nume Pasaport"]
         api = self._api
@@ -164,19 +247,33 @@ class StrategyWithoutProxy:
     async def sync_registrations(
         self, users_data: list[dict], queue: asyncio.Queue
     ):
+        """Sync registration.
+
+        We do registrations sequentially for each user.
+
+        Args:
+            users_data (list[dict]): users data to registrate
+            queue (asyncio.Queue): success registration will put into queue
+        """
         api = self._api
-        reg_dt = self._registration_date
+        reg_dts = self._get_registration_dates()
         proxy = self._residental_proxy_url
 
         for user_data in users_data:
             try:
-                html = await api.make_registration(
-                    user_data,
-                    registration_date=reg_dt,
-                    tip_formular=self._tip_formular,
-                    proxy=proxy,
-                )
-                await self.post_registrate(user_data, html, queue)
+                tasks = [
+                    api.make_registration(
+                        user_data,
+                        registration_date=reg_dt,
+                        tip_formular=self._tip_formular,
+                        proxy=proxy,
+                    )
+                    for reg_dt in reg_dts
+                ]
+                htmls = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for html in htmls:
+                    await self.post_registrate(user_data, html, queue)
             except AIOHTTP_NET_ERRORS:
                 pass
             except Exception as e:
@@ -184,30 +281,24 @@ class StrategyWithoutProxy:
                     logger.exception(e)
 
     async def start_registration(self):
-        api = self._api
-        reg_dt = self._registration_date
+        """Start main registration proccess.
+
+        Proccess stop at time which passed to __init__ method as `stop_time`
+        or if all users successfully registrate.
+        """
         successfully_registered = []
         queue = asyncio.Queue()
 
         now = self._get_dt_now()
         dirname = f"registrations_{now.strftime("%d.%m.%Y")}"
+        if not os.path.exists(dirname):
+            Path(dirname).mkdir(exist_ok=True)
 
         while True:
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
 
             try:
-                async with asyncio.timeout(5):
-                    places = await api.get_free_places_for_date(
-                        tip_formular=self._tip_formular,
-                        month=reg_dt.month,
-                        day=reg_dt.day,
-                        year=reg_dt.year,
-                    )
-                    if not places:
-                        logger.debug(f"{places} places")
-                        continue
-
                 users_for_registrate = [
                     u
                     for u in self._users_data.copy()
@@ -216,6 +307,10 @@ class StrategyWithoutProxy:
                 if self._use_shuffle:
                     random.shuffle(users_for_registrate)
 
+                logger.debug(
+                    f"Start registrations, we have {len(users_for_registrate)} "
+                    "users to registrate"
+                )
                 if self._mode == "sync":
                     await self.sync_registrations(
                         users_data=users_for_registrate, queue=queue
@@ -242,6 +337,11 @@ class StrategyWithoutProxy:
                     async with aiofiles.open(str(path), "w") as f:
                         await f.write(html)
 
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                logger.exception(e)
+            finally:
                 if (
                     len(successfully_registered) >= len(self._users_data.copy())
                     or not users_for_registrate
@@ -254,11 +354,6 @@ class StrategyWithoutProxy:
                 ):
                     break
 
-            except asyncio.TimeoutError:
-                pass
-            except Exception as e:
-                logger.exception(e)
-
         try:
             fn = f"successfully-registered.csv"
             path = Path().joinpath(dirname, fn)
@@ -269,12 +364,24 @@ class StrategyWithoutProxy:
             logger.exception(e)
 
     async def update_users_list(self):
+        """Update proxy list from remote db."""
         while True:
             try:
+                users_data = self._users_data.copy()
+                new_users_data = []
+
                 async with self._db as db:
-                    self._users_data = await db.get_users_by_reg_date(
-                        self._registration_date
-                    )
+                    for reg_dt in self._get_registration_dates():
+                        new_users_data.extend(
+                            [
+                                us
+                                for us in await db.get_users_by_reg_date(reg_dt)
+                                
+                                if us not in new_users_data
+                            ]
+                        )
+
+                self._users_data = new_users_data.copy()
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
@@ -284,10 +391,18 @@ class StrategyWithoutProxy:
     async def get_unregisterer_users(
         self, days: int = 3
     ) -> list[dict[str, str] | None]:
+        """Get unregistered users from target API.
+
+        Args:
+            days (int, optional): days to range. Defaults to 3.
+
+        Returns:
+            list[dict[str, str] | None]: list of unregistered users
+        """
         api = self._api
         users_data = self._users_data.copy()
-        start_date = self._registration_date - timedelta(days=days)
-        stop_date = self._registration_date
+        start_date = self._registration_dates[0] - timedelta(days=days)
+        stop_date = self._registration_dates[-1]
 
         try:
             response = await api.see_registrations(
@@ -322,10 +437,16 @@ class StrategyWithoutProxy:
     async def add_users_to_db(self):
         try:
             async with self._db as db:
-                for user_data in self._users_data:
-                    await db.add_user(
-                        user_data, registration_date=self._registration_date
-                    )
+                tasks = [
+                    db.add_user(user_data, registration_date=reg_dt)
+                    for reg_dt in self._get_registration_dates()
+                    for user_data in self._users_data.copy()
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                ...
+                # for reg_dt in self._get_registration_dates():
+                #     for user_data in self._users_data:
+                #         await db.add_user(user_data, registration_date=reg_dt)
         except asyncio.TimeoutError:
             pass
         except Exception as e:
@@ -363,17 +484,18 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 async def main():
     tip = 3
-    reg_date = datetime(year=2024, month=11, day=20)
+    reg_date = datetime(year=2024, month=11, day=10)
+    registration_dates = [reg_date, reg_date + timedelta(days=5)]
 
     data = generate_fake_users_data(50)
-    # async with UsersService() as service:
-    #     data = await service.get_users_by_reg_date(reg_date)
 
-    # if not await database_prepared_correctly(reg_date, data):
-    #     await prepare_database(reg_date, data)
+    if not await database_prepared_correctly(reg_date, data):
+        await prepare_database(reg_date, data)
+    async with UsersService() as service:
+        data = await service.get_users_by_reg_date(reg_date)
 
     strategy = StrategyWithoutProxy(
-        registration_date=reg_date,
+        registration_dates=registration_dates,
         tip_formular=tip,
         users_data=data,
         mode="sync",

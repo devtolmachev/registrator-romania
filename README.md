@@ -33,8 +33,6 @@ poetry -V
 
 you should see version of poetry.
 
-4. You should be create and fill file `.env` by example in `.env-example` file
-
 
 ## How to run cli app locally
 
@@ -56,13 +54,16 @@ cd registrator-romania
 
 1. open terminal in root of repo
 
-2. Switch branch on main (it need to 1 time)
+2.  You should be create and fill file `.env` by example in `.env-example` file
+
+
+3. Switch branch on main (it need to 1 time)
 
 ```bash
 git checkout main
 ``` 
 
-3. Update the code
+4. Update the code
 
 ```bash
 git pull origin main

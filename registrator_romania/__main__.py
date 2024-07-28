@@ -143,12 +143,13 @@ async def run_docker_compose(containers: int, env_vars: dict):
 
     env = os.environ.copy()
     env.update(env_vars)
+    new_env = {str(k): str(v) for k, v in env.items()}
     process = await asyncio.create_subprocess_exec(
         *command_list,
         shell=False,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=env,
+        env=new_env,
         text=False,
     )
 

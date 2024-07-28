@@ -246,6 +246,11 @@ class StrategyWithoutProxy:
                     async with aiofiles.open(str(path), "w") as f:
                         await f.write(html)
 
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                logger.exception(e)
+            finally:
                 if (
                     len(successfully_registered) >= len(self._users_data.copy())
                     or not users_for_registrate
@@ -257,11 +262,6 @@ class StrategyWithoutProxy:
                     and now.minute >= self._stop_when[1]
                 ):
                     break
-
-            except asyncio.TimeoutError:
-                pass
-            except Exception as e:
-                logger.exception(e)
 
         try:
             fn = f"successfully-registered.csv"

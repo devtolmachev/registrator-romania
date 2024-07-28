@@ -71,7 +71,7 @@ git pull origin main
 0. You should be create and fill file `.env` by example in `.env-example` file
 
 1. Make sure the docker running!!!!!!!!!!!!!!
-   
+    
 2. Install dependencies in **ROOT OF PROJECT**!!!
 
 ```bash

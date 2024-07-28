@@ -34,7 +34,6 @@ async def main_async(
     tip_formular: int,
     proxy_provider_url: str | None,
 ):
-    return print(proxy_provider_url)
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{dt.strftime("%d.%m.%Y")}"
 

@@ -35,7 +35,7 @@ from registrator_romania.frontend.telegram_bot.alerting import (
 )
 from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
-ssl._create_default_https_context = ssl._create_unverified_context
+# ssl._create_default_https_context = ssl._create_unverified_context
 
 class StrategyWithoutProxy:
     def __init__(
@@ -53,7 +53,6 @@ class StrategyWithoutProxy:
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
-
         self._api = APIRomania(debug=debug)
         self._db = UsersService()
         self._users_data = users_data or []
@@ -381,8 +380,8 @@ async def main():
         tip_formular=tip,
         users_data=data,
         mode="sync",
-        # residental_proxy_url="https://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
-        residental_proxy_url=None,
+        residental_proxy_url="http://brd-customer-hl_50a8cbed-zone-residential_proxy2:a97k9eba8voz@brd.superproxy.io:22225",
+        # residental_proxy_url=None,
         async_requests_num=2,
     )
     await strategy.start()

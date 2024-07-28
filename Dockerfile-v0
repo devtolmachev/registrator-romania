@@ -10,6 +10,7 @@ RUN poetry install --no-root --no-interaction --no-ansi
 
 COPY . /app
 RUN cp /app/crts/ca.crt /usr/local/share/ca-certificates/
+RUN cp /app/crts/ca-2.crt /usr/local/share/ca-certificates/
 RUN update-ca-certificates
 
 ENTRYPOINT [ "python", "registrator_romania/cli/run.py" ]

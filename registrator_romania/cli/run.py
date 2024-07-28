@@ -70,7 +70,7 @@ async def main_async(
             stop_when=[stop_time.hour, stop_time.minute],
             mode=mode,
             async_requests_num=async_requests_num,
-            residental_proxy_url=proxy_provider_url if proxy_provider_url else "False",
+            residental_proxy_url=proxy_provider_url,
         )
         await strategy.start()
 

@@ -188,7 +188,12 @@ async def run_docker_compose(containers: int, env_vars: dict):
 @click.option("--save_logs", default="yes", help=HELP_SAVE_LOGS)
 @click.option("--users_file", help=HELP_USERS_FILE)
 @click.option("--tip_formular", help=HELP_TIP_FORMULAR)
-@click.option("--proxy_provider_url", required="", help=HELP_PROXY_PROVIDER_URL)
+@click.option(
+    "--proxy_provider_url",
+    required=True,
+    default="",
+    help=HELP_PROXY_PROVIDER_URL,
+)
 def main(
     mode: str,
     containers: int,

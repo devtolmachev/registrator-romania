@@ -369,7 +369,7 @@ async def main():
     tip = 3
     reg_date = datetime(year=2024, month=11, day=20)
 
-    data = generate_fake_users_data(50)
+    data = generate_fake_users_data(5)
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
 
@@ -381,7 +381,8 @@ async def main():
         tip_formular=tip,
         users_data=data,
         mode="sync",
-        residental_proxy_url="https://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
+        # residental_proxy_url="https://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
+        residental_proxy_url=None,
         async_requests_num=2,
     )
     await strategy.start()

@@ -67,20 +67,31 @@ class StrategyWithoutProxy:
 
     async def start(self):
         if self._users_data:
+            logger.debug("get unregister users")
             try:
-                unregistered_users = await self.get_unregisterer_users()
-                if unregistered_users:
-                    self._users_data = unregistered_users.copy()
+                async with asyncio.timeout(10):
+                    unregistered_users = await self.get_unregisterer_users()
+                    if unregistered_users:
+                        self._users_data = unregistered_users.copy()
+            except asyncio.TimeoutError:
+                pass
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
+            
+            try:
+                logger.debug("add users to database")
+                async with asyncio.timeout(10):
+                    await self.add_users_to_db()
+            except asyncio.TimeoutError:
+                pass
 
-            await self.add_users_to_db()
 
         self.update_users_data_task = asyncio.create_task(
             self.update_users_list()
         )
         while not self._users_data:
+            logger.debug("wait for strategy add users from database")
             await asyncio.sleep(1)
         await self.start_registration()
 
@@ -189,7 +200,7 @@ class StrategyWithoutProxy:
         queue = asyncio.Queue()
 
         now = self._get_dt_now()
-        dirname = f"registrations_{now.strftime("%d.%m.%Y")}"
+        dirname = f"registrations_{reg_dt.strftime("%d.%m.%Y")}"
 
         while True:
             now = self._get_dt_now()
@@ -380,7 +391,7 @@ async def main():
         tip_formular=tip,
         users_data=data,
         mode="sync",
-        residental_proxy_url="http://brd-customer-hl_50a8cbed-zone-residential_proxy2:a97k9eba8voz@brd.superproxy.io:22225",
+        residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
         # residental_proxy_url=None,
         async_requests_num=2,
     )

@@ -9,11 +9,10 @@ spr.json
 *.html
 .*~lock.*
 registrations*
-registrations_*
 *.xlsx
 *.docx
 *.log
-registrations*
+users*
 
 # C extensions
 *.so

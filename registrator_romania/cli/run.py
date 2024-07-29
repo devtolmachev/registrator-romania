@@ -35,7 +35,7 @@ async def main_async(
     proxy_provider_url: str | None,
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
-    dirpath = f"registrations_{dt.strftime("%d.%m.%Y")}"
+    dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
 
     if save_logs:
         logger.remove()
@@ -57,6 +57,7 @@ async def main_async(
         )
 
     users_data = get_users_data_from_xslx(path=users_file)
+    logger.info(f"we have {len(users_data)} raw users to registrate")
 
     async def start_registrations():
         # For debug commented code
@@ -72,24 +73,21 @@ async def main_async(
             async_requests_num=async_requests_num,
             residental_proxy_url=proxy_provider_url,
         )
+        logger.info("Start strategy of registrations")
         await strategy.start()
 
     try:
         async with asyncio.timeout(10):
+            logger.info("check that database prepared correctly")
             correctly = await database_prepared_correctly(
                 reg_dt=registration_date, users_data=users_data
             )
 
         if not correctly:
             async with asyncio.timeout(7):
+                logger.info("not correctly, prepare database")
                 await prepare_database(
                     reg_dt=registration_date, users_data=users_data
-                )
-
-        async with asyncio.timeout(10):
-            async with UsersService() as service:
-                users_data = await service.get_users_by_reg_date(
-                    registration_date=registration_date
                 )
     except asyncio.TimeoutError:
         pass

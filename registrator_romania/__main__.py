@@ -10,7 +10,7 @@ import click
 from loguru import logger
 
 from registrator_romania.backend.utils import get_users_data_from_xslx
-from registrator_romania.cli import run
+from registrator_romania.cli import run as run_cli
 
 
 TARGET_URL = "https://programarecetatenie.eu/programare_online"
@@ -182,9 +182,13 @@ async def run_docker_compose(containers: int, env_vars: dict):
     await process.wait()
 
 
-def run_as_processes(process_count: int, params: dict):
-    from registrator_romania.cli import run as run_cli
+def start_loop(kw: dict):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_cli.main_async(**kw))
 
+
+def run_as_processes(process_count: int, params: dict):
     mode = params["mode"]
     async_requests_num = params["async_requests_num"]
     use_shuffle = params["use_shuffle"]
@@ -229,11 +233,6 @@ def run_as_processes(process_count: int, params: dict):
 
     processes: list[Process] = []
     
-    def start_loop(kw: dict):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_cli.main_async(**kw))
-
     for num in range(1, process_count + 1):
         process = Process(target=start_loop, args=(kw, ))
         process.start()

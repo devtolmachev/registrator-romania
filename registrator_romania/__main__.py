@@ -11,6 +11,7 @@ from loguru import logger
 
 from registrator_romania.backend.utils import get_users_data_from_xslx
 from registrator_romania.cli import run as run_cli
+from registrator_romania.cli.utils import start_loop
 
 
 TARGET_URL = "https://programarecetatenie.eu/programare_online"
@@ -180,12 +181,6 @@ async def run_docker_compose(containers: int, env_vars: dict):
     )
 
     await process.wait()
-
-
-def start_loop(kw: dict):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_cli.main_async(**kw))
 
 
 def run_as_processes(process_count: int, params: dict):

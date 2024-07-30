@@ -1,14 +1,17 @@
 import asyncio
 from datetime import datetime
+from multiprocessing import Process
 import os
 from pprint import pprint
 import shlex
 import sys
 from zoneinfo import ZoneInfo
 import click
+from loguru import logger
 
 from registrator_romania.backend.utils import get_users_data_from_xslx
-from registrator_romania.cli import run
+from registrator_romania.cli import run as run_cli
+from registrator_romania.cli.utils import start_loop
 
 
 TARGET_URL = "https://programarecetatenie.eu/programare_online"
@@ -132,6 +135,13 @@ HELP_PROXY_PROVIDER_URL = """
 
 """
 
+HELP_PROCESSES = """
+По умолчанию: no
+
+Передайте в этот параметр `yes` чтобы запускать процессы без docker.
+
+"""
+
 
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
@@ -173,6 +183,63 @@ async def run_docker_compose(containers: int, env_vars: dict):
     await process.wait()
 
 
+def run_as_processes(process_count: int, params: dict):
+    mode = params["mode"]
+    async_requests_num = params["async_requests_num"]
+    use_shuffle = params["use_shuffle"]
+    stop_time = params["stop_time"]
+    start_time = params["start_time"]
+    registration_date = params["registration_date"]
+    save_logs = params["save_logs"]
+    users_file = params["users_file"]
+    tip_formular = params["tip_formular"]
+    proxy_provider_url = params["proxy_provider_url"]
+
+    start_time = datetime.now().strptime(start_time, "%H:%M")
+    stop_time = datetime.strptime(stop_time, "%H:%M")
+    registration_date = datetime.strptime(registration_date, "%d.%m.%Y")
+    use_shuffle = True if "yes" else False
+    save_logs = True if "yes" else False
+    proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
+
+    start_time = (
+        datetime.now()
+        .astimezone(ZoneInfo("Europe/Moscow"))
+        .replace(hour=start_time.hour, minute=start_time.minute)
+    )
+    stop_time = (
+        datetime.now()
+        .astimezone(ZoneInfo("Europe/Moscow"))
+        .replace(hour=start_time.hour, minute=start_time.minute)
+    )
+
+    kw = {
+        "proxy_provider_url": proxy_provider_url,
+        "mode": mode,
+        "async_requests_num": async_requests_num,
+        "use_shuffle": use_shuffle,
+        "stop_time": stop_time,
+        "start_time": start_time,
+        "registration_date": registration_date,
+        "save_logs": save_logs,
+        "users_file": users_file,
+        "tip_formular": tip_formular,
+    }
+
+    processes: list[Process] = []
+    
+    for num in range(1, process_count + 1):
+        process = Process(target=start_loop, args=(kw, ))
+        process.start()
+        logger.info(f"Process №{num} started")
+        processes.append(process)
+
+    for pr in processes:
+        pr.join()
+
+    print("All processes is stopped")
+
+
 @click.command()
 @click.option("--mode", default="sync", help=HELP_MODE_OPTION)
 @click.option("--containers", default=5, help=HELP_CONTAINERS)
@@ -188,6 +255,7 @@ async def run_docker_compose(containers: int, env_vars: dict):
 @click.option("--save_logs", default="yes", help=HELP_SAVE_LOGS)
 @click.option("--users_file", help=HELP_USERS_FILE)
 @click.option("--tip_formular", help=HELP_TIP_FORMULAR)
+@click.option("--processes", default="no", help=HELP_PROCESSES)
 @click.option(
     "--proxy_provider_url",
     required=True,
@@ -206,6 +274,7 @@ def main(
     users_file: str,
     tip_formular: int,
     proxy_provider_url: str,
+    processes: str,
 ):
     assert str(
         tip_formular
@@ -245,7 +314,16 @@ def main(
         "tip_formular": str(tip_formular),
     }
 
-    asyncio.run(run_docker_compose(containers=int(containers), env_vars=env))
+    assert processes in [
+        "yes",
+        "no",
+    ], "Параметр `processes` должен быть либо `yes`, либо `no`"
+    use_process = True if processes == "yes" else None
+    
+    if not use_process:
+        asyncio.run(run_docker_compose(containers=int(containers), env_vars=env))
+    else:
+        run_as_processes(process_count=int(containers), params=env)
 
     stop_time = (
         datetime.now()

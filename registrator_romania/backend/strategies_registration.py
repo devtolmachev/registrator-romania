@@ -205,6 +205,7 @@ class StrategyWithoutProxy:
         while True:
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
+            users_for_registrate = self._users_data.copy()
 
             try:
                 try:

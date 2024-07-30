@@ -2,16 +2,20 @@ import asyncio
 from datetime import datetime, timedelta
 import functools
 import os
+from queue import Queue
 import ssl
 from pathlib import Path
 import platform
 import random
 import sys
+from threading import Thread
+import time
 from typing import Literal
 from zoneinfo import ZoneInfo
 import aiofiles
 from loguru import logger
 from pandas import DataFrame
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from registrator_romania.backend.api.api_romania import APIRomania
 from registrator_romania.backend.database.api import (
@@ -37,6 +41,7 @@ from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
 # ssl._create_default_https_context = ssl._create_unverified_context
 
+
 class StrategyWithoutProxy:
     def __init__(
         self,
@@ -50,6 +55,7 @@ class StrategyWithoutProxy:
         use_shuffle: bool = True,
         logging: bool = True,
         residental_proxy_url: str = None,
+        multiple_registration_on: datetime = None,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
@@ -64,6 +70,7 @@ class StrategyWithoutProxy:
         self._use_shuffle = use_shuffle
         self._logging = logging
         self._residental_proxy_url = residental_proxy_url
+        self._multiple_registration_on = multiple_registration_on
 
     async def start(self):
         if self._users_data:
@@ -78,14 +85,13 @@ class StrategyWithoutProxy:
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
-            
+
             try:
                 logger.debug("add users to database")
                 async with asyncio.timeout(10):
                     await self.add_users_to_db()
             except asyncio.TimeoutError:
                 pass
-
 
         self.update_users_data_task = asyncio.create_task(
             self.update_users_list()
@@ -124,6 +130,62 @@ class StrategyWithoutProxy:
                 if self._logging:
                     logger.exception(e)
                 continue
+
+    async def _start_multiple_registrator(
+        self, thread_queue: Queue, dirname: str
+    ):
+        users_data = self._users_data.copy()
+        if not users_data:
+            return
+
+        queue = asyncio.Queue()
+        await self.async_registrations(users_data=users_data, queue=queue)
+
+        queue_2 = asyncio.Queue()
+
+        while not queue.empty():
+            data = await queue.get()
+            await queue_2.put(data)
+            thread_queue.put(data)
+
+        await self._save_successfully_registration_from_queue(
+            queue=queue_2, dirname=dirname
+        )
+
+    async def schedule_multiple_registrations(self, dirname: str):
+        thread_queue = Queue()
+
+        def run_in_thread():
+            nonlocal thread_queue
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(
+                self._start_multiple_registrator(
+                    thread_queue=thread_queue, dirname=dirname
+                )
+            )
+
+        def start_threads():
+            threads: list[Thread] = []
+            for _ in range(7):
+                th = Thread(target=run_in_thread)
+                th.start()
+                threads.append(th)
+                time.sleep(2)
+
+            for th in threads:
+                th.join()
+                logger.info(f"Thread {th.name} finished")
+
+            logger.info("All threads finished")
+
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(
+            run_in_thread,
+            "cron",
+            start_date=self._multiple_registration_on,
+            timezone=ZoneInfo("Europe/Moscow"),
+        )
 
     async def post_registrate(
         self, user_data: dict, html: str, queue: asyncio.Queue
@@ -229,7 +291,9 @@ class StrategyWithoutProxy:
                 ]
                 if self._use_shuffle:
                     random.shuffle(users_for_registrate)
-                logger.debug(f"Start registration, we have {len(users_for_registrate)} users for registrate")
+                logger.debug(
+                    f"Start registration, we have {len(users_for_registrate)} users for registrate"
+                )
 
                 if self._mode == "sync":
                     await self.sync_registrations(
@@ -241,21 +305,11 @@ class StrategyWithoutProxy:
                         users_data=users_for_registrate, queue=queue
                     )
 
-                while not queue.empty():
-                    user_data, html = await queue.get()
-                    successfully_registered.append(user_data)
-
-                    first_name, last_name = (
-                        user_data["Prenume Pasaport"],
-                        user_data["Nume Pasaport"],
+                successfully_registered.extend(
+                    await self._save_successfully_registration_from_queue(
+                        queue=queue, dirname=dirname
                     )
-
-                    fn = f"success-{first_name}_{last_name}.html"
-                    path = Path().joinpath(dirname, fn)
-                    Path(dirname).mkdir(exist_ok=True)
-
-                    async with aiofiles.open(str(path), "w") as f:
-                        await f.write(html)
+                )
 
             except asyncio.TimeoutError:
                 pass
@@ -274,14 +328,53 @@ class StrategyWithoutProxy:
                 ):
                     break
 
+        await self._save_success_registrations_in_csv(
+            dirname=dirname, success_registrations=successfully_registered
+        )
+
+    async def _save_success_registrations_in_csv(
+        self, dirname: str, success_registrations: list
+    ):
         try:
             fn = f"successfully-registered.csv"
             path = Path().joinpath(dirname, fn)
 
-            df = DataFrame(successfully_registered)
+            df = DataFrame(success_registrations)
             df.to_csv(str(path), index=False)
         except Exception as e:
             logger.exception(e)
+
+    async def _save_successfully_registration_from_queue(
+        self, queue: asyncio.Queue, dirname: str
+    ):
+        """Save html about successfully registrations in dirname.
+
+        Args:
+            queue (asyncio.Queue): asyncio queue that contains registrations data
+            dirname (str): dirname where html files will be save
+
+        Returns:
+            list[Optional[dict]]: list with users data which registered
+            successfully
+        """
+        successfully_registered = []
+        while not queue.empty():
+            user_data, html = await queue.get()
+            successfully_registered.append(user_data)
+
+            first_name, last_name = (
+                user_data["Prenume Pasaport"],
+                user_data["Nume Pasaport"],
+            )
+
+            fn = f"success-{first_name}_{last_name}.html"
+            path = Path().joinpath(dirname, fn)
+            Path(dirname).mkdir(exist_ok=True)
+
+            async with aiofiles.open(str(path), "w") as f:
+                await f.write(html)
+
+        return successfully_registered
 
     async def update_users_list(self):
         while True:

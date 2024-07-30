@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import click
 from loguru import logger
 
-from registrator_romania.backend.utils import get_users_data_from_xslx
+from registrator_romania.backend.utils import generate_fake_users_data, get_users_data_from_xslx
 from registrator_romania.cli import run as run_cli
 from registrator_romania.cli.utils import start_loop
 
@@ -142,6 +142,16 @@ HELP_PROCESSES = """
 
 """
 
+HELP_FAKE_USERS = """
+По умолчанию: no
+
+Передайте в этот параметр число, чтобы сгенерировать фейковых пользователей 
+с определенным количеством, для регистраций, не затрагивая пользователей 
+в файле. 
+(Параметр --users_file все равно должен быть указан)
+
+"""
+
 
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
@@ -227,9 +237,9 @@ def run_as_processes(process_count: int, params: dict):
     }
 
     processes: list[Process] = []
-    
+
     for num in range(1, process_count + 1):
-        process = Process(target=start_loop, args=(kw, ))
+        process = Process(target=start_loop, args=(kw,))
         process.start()
         logger.info(f"Process №{num} started")
         processes.append(process)
@@ -262,6 +272,11 @@ def run_as_processes(process_count: int, params: dict):
     default="",
     help=HELP_PROXY_PROVIDER_URL,
 )
+@click.option(
+    "--fake_users",
+    default="no",
+    help=HELP_FAKE_USERS,
+)
 def main(
     mode: str,
     containers: int,
@@ -275,10 +290,14 @@ def main(
     tip_formular: int,
     proxy_provider_url: str,
     processes: str,
+    fake_users: str,
 ):
     assert str(
         tip_formular
     ).isdigit(), "Параметр tip_formular должен быть числом!"
+    assert (
+        fake_users == "no" or fake_users.isdigit()
+    ), "Параметр fake_users должен быть либо `no`, либо числом!"
     yes_no = ["yes", "no"]
     assert (
         use_shuffle in yes_no
@@ -297,9 +316,12 @@ def main(
         "sync",
         "async",
     ], "Параметр mode должен быть либо async, либо sync"
-
-    users_data = get_users_data_from_xslx(path=users_file)
-    assert users_data, "Файл с пользователями неверный, произошла ошибка. Проверьте файл и повторите попытку"
+    
+    if fake_users == "no":
+        users_data = get_users_data_from_xslx(path=users_file)
+        assert users_data, "Файл с пользователями неверный, произошла ошибка. Проверьте файл и повторите попытку"
+    else:
+        users_data = generate_fake_users_data(n=int(fake_users))
 
     env = {
         "proxy_provider_url": proxy_provider_url,
@@ -319,9 +341,11 @@ def main(
         "no",
     ], "Параметр `processes` должен быть либо `yes`, либо `no`"
     use_process = True if processes == "yes" else None
-    
+
     if not use_process:
-        asyncio.run(run_docker_compose(containers=int(containers), env_vars=env))
+        asyncio.run(
+            run_docker_compose(containers=int(containers), env_vars=env)
+        )
     else:
         run_as_processes(process_count=int(containers), params=env)
 

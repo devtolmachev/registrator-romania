@@ -37,6 +37,7 @@ from registrator_romania.backend.utils import (
     filter_by_log_level,
     generate_fake_users_data,
 )
+from registrator_romania.backend.utils import get_dt_moscow
 from registrator_romania.frontend.telegram_bot.alerting import (
     send_msg_into_chat,
 )
@@ -83,20 +84,20 @@ class StrategyWithoutProxy:
         self._lock = threading.Lock()
 
     async def start(self):
-        if self._without_remote_database is False:
-            if self._users_data:
-                logger.debug("get unregister users")
-                try:
-                    async with asyncio.timeout(10):
-                        unregistered_users = await self.get_unregisterer_users()
-                        if unregistered_users:
-                            self._users_data = unregistered_users.copy()
-                except asyncio.TimeoutError:
-                    pass
-                except Exception as e:
-                    if self._logging:
-                        logger.exception(e)
-
+        if self._users_data:
+            logger.debug("get unregister users")
+            try:
+                async with asyncio.timeout(10):
+                    unregistered_users = await self.get_unregisterer_users()
+                    if unregistered_users:
+                        self._users_data = unregistered_users.copy()
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                if self._logging:
+                    logger.exception(e)
+                    
+            if self._without_remote_database is False:
                 try:
                     logger.debug("add users to database")
                     async with asyncio.timeout(10):
@@ -104,9 +105,9 @@ class StrategyWithoutProxy:
                 except asyncio.TimeoutError:
                     pass
 
-            self.update_users_data_task = asyncio.create_task(
-                self.update_users_list()
-            )
+        self.update_users_data_task = asyncio.create_task(
+            self.update_users_list()
+        )
 
         while not self._users_data:
             logger.debug("wait for strategy add users from database")
@@ -114,7 +115,7 @@ class StrategyWithoutProxy:
         await self.start_registration()
 
     def _get_dt_now(self) -> datetime:
-        return datetime.now().astimezone(tz=ZoneInfo("Europe/Moscow"))
+        return get_dt_moscow()
 
     async def async_registrations(
         self, users_data: list[dict], queue: asyncio.Queue
@@ -167,12 +168,9 @@ class StrategyWithoutProxy:
         tasks = [registrate(user_data=user_data) for user_data in users_data]
         random.shuffle(tasks)
         results = []
-        for chunk in divide_list(tasks, divides=3):
+        for chunk in divide_list(tasks, divides=30):
             start = datetime.now()
             results.extend(await asyncio.gather(*chunk, return_exceptions=True))
-
-        print(f"{len(tasks)} registrations finished by {datetime.now()-start}")
-        pprint(results)
 
         await self._save_successfully_registration_from_queue(
             queue=queue, dirname=dirname
@@ -188,18 +186,18 @@ class StrategyWithoutProxy:
 
         def start_threads():
             threads: list[Thread] = []
-            for _ in range(7):
+            for _ in range(self._multiple_registration_threads):
                 th = Thread(target=run_in_thread)
                 th.start()
                 threads.append(th)
                 time.sleep(1)
-                # logger.info(f"Thread {th.name} started")
+                logger.debug(f"Thread {th.name} started")
 
             for th in threads:
                 th.join()
-                logger.info(f"Thread {th.name} finished")
+                logger.debug(f"Thread {th.name} finished")
 
-            logger.info("All threads finished")
+            logger.debug("All threads finished")
 
         scheduler = BackgroundScheduler()
         scheduler.add_job(
@@ -301,6 +299,7 @@ class StrategyWithoutProxy:
                 await asyncio.sleep(2)
 
         while True:
+            logger.debug("Start cycle")
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
             users_for_registrate = self._users_data.copy()
@@ -422,6 +421,8 @@ class StrategyWithoutProxy:
         return successfully_registered
 
     async def update_users_list(self):
+        if self._without_remote_database is True:
+            return
         while True:
             try:
                 async with self._db as db:
@@ -534,8 +535,8 @@ async def main():
         tip_formular=tip,
         users_data=data,
         mode="sync",
-        residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
-        # residental_proxy_url=None,
+        # residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
+        residental_proxy_url=None,
         async_requests_num=2,
         multiple_registration_on=multiple_requests,
         multiple_registration_threads=2,

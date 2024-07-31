@@ -411,7 +411,7 @@ class APIRomania:
                 ) as resp:
                     raw = await resp.read()
                     response = await resp.json(content_type=resp.content_type)
-            except AIOHTTP_NET_ERRORS:
+            except AIOHTTP_NET_ERRORS as e:
                 return
 
         return response["numar_ramase"]

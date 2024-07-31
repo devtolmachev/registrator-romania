@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from multiprocessing import Process
 import os
 from pprint import pprint
@@ -9,8 +9,11 @@ from zoneinfo import ZoneInfo
 import click
 from loguru import logger
 
-from registrator_romania.backend.utils import generate_fake_users_data, get_users_data_from_xslx
-from registrator_romania.cli import run as run_cli
+from registrator_romania.backend.utils import (
+    generate_fake_users_data,
+    get_users_data_from_xslx,
+)
+from registrator_romania.backend.utils import get_dt_moscow
 from registrator_romania.cli.utils import start_loop
 
 
@@ -89,9 +92,7 @@ HELP_START_TIME = """
 Самое раннее время, когда скрипт должен включиться самостоятельно.
 """
 
-registration_date = (
-    datetime.now().replace(month=datetime.now().month + 4).date()
-)
+registration_date = (get_dt_moscow() + timedelta(days=4)).date()
 
 HELP_REGISTRATION_DATE = f"""
 Значение по умолчанию: <текущее число>.<номер текущего месяца + 4>.<текущий год>
@@ -153,6 +154,23 @@ HELP_FAKE_USERS = """
 """
 
 
+HELP_WITHOUT_REMOTE_DATABASE = """
+По умолчанию: no
+
+Передайте в этот параметр yes, тогда скрипт принудительно не будет 
+синхронизировать список с удаленной базой данных.
+"""
+
+
+HELP_MULTIPLE_REQUESTING_ON = """
+По умолчанию: no
+
+Передайте в этот параметр время по МСК (в формате час:минута:секунда),
+в которое в отдельном потоке будут моментально регистрироваться все 
+пользователи без задержек.
+"""
+
+
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
         "docker compose -f docker-compose-v0.yml up "
@@ -204,6 +222,9 @@ def run_as_processes(process_count: int, params: dict):
     users_file = params["users_file"]
     tip_formular = params["tip_formular"]
     proxy_provider_url = params["proxy_provider_url"]
+    without_remote_database = params["without_remote_database"]
+    multiple_requesting_on = params["multiple_requesting_on"]
+    users_data = params["users_data"]
 
     start_time = datetime.now().strptime(start_time, "%H:%M")
     stop_time = datetime.strptime(stop_time, "%H:%M")
@@ -211,6 +232,12 @@ def run_as_processes(process_count: int, params: dict):
     use_shuffle = True if "yes" else False
     save_logs = True if "yes" else False
     proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
+    without_remote_database = False if without_remote_database == "no" else True
+    multiple_requesting_on = (
+        False
+        if multiple_requesting_on == "no"
+        else datetime.strptime(multiple_requesting_on, "%H:%M:%S")
+    )
 
     start_time = (
         datetime.now()
@@ -234,6 +261,9 @@ def run_as_processes(process_count: int, params: dict):
         "save_logs": save_logs,
         "users_file": users_file,
         "tip_formular": tip_formular,
+        "without_remote_database": without_remote_database,
+        "multiple_requesting_on": multiple_requesting_on,
+        "users_data": users_data
     }
 
     processes: list[Process] = []
@@ -277,6 +307,16 @@ def run_as_processes(process_count: int, params: dict):
     default="no",
     help=HELP_FAKE_USERS,
 )
+@click.option(
+    "--without_remote_database",
+    default="no",
+    help=HELP_WITHOUT_REMOTE_DATABASE,
+)
+@click.option(
+    "--multiple_requesting_on",
+    default="no",
+    help=HELP_WITHOUT_REMOTE_DATABASE,
+)
 def main(
     mode: str,
     containers: int,
@@ -291,6 +331,8 @@ def main(
     proxy_provider_url: str,
     processes: str,
     fake_users: str,
+    without_remote_database: str,
+    multiple_requesting_on: str,
 ):
     assert str(
         tip_formular
@@ -305,18 +347,31 @@ def main(
     assert (
         save_logs in yes_no
     ), "Параметр use_shuffle, должен быть либо yes, либо no"
+
+    assert (
+        without_remote_database in yes_no
+    ), "Параметр  without_remote_database, должен быть либо yes, либо no"
+
     assert str(
         async_requests_num
     ).isdigit(), "Параметр async_requests_num, должен быть целым числом!"
     assert str(
         containers
     ).isdigit(), "Параметр containers, должен быть целым числом!"
-
+    
+    try:
+        datetime.strptime(multiple_requesting_on, "%H:%M:%S")
+    except:
+        if multiple_requesting_on != "no":
+            raise ValueError(
+                "Параметр multiple_requesting_on должен быть либо no, либо "
+                "временем (например 08:59:55)"
+            )
     assert mode in [
         "sync",
         "async",
     ], "Параметр mode должен быть либо async, либо sync"
-    
+
     if fake_users == "no":
         users_data = get_users_data_from_xslx(path=users_file)
         assert users_data, "Файл с пользователями неверный, произошла ошибка. Проверьте файл и повторите попытку"
@@ -334,6 +389,9 @@ def main(
         "save_logs": save_logs,
         "users_file": users_file,
         "tip_formular": str(tip_formular),
+        "without_remote_database": without_remote_database,
+        "multiple_requesting_on": multiple_requesting_on,
+        "users_data": users_data
     }
 
     assert processes in [

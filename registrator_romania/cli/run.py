@@ -33,6 +33,9 @@ async def main_async(
     users_file: str,
     tip_formular: int,
     proxy_provider_url: str | None,
+    without_remote_database: bool,
+    multiple_requesting_on: datetime | bool,
+    users_data: list[dict]
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
@@ -56,7 +59,7 @@ async def main_async(
             filter=filter_by_log_level(loglevels=["SUCCESS"]),
         )
 
-    users_data = get_users_data_from_xslx(path=users_file)
+    # users_data = get_users_data_from_xslx(path=users_file)
     logger.info(f"we have {len(users_data)} raw users to registrate")
 
     async def start_registrations():
@@ -72,27 +75,30 @@ async def main_async(
             mode=mode,
             async_requests_num=async_requests_num,
             residental_proxy_url=proxy_provider_url,
+            without_remote_database=without_remote_database,
+            multiple_registration_on=multiple_requesting_on,
         )
         logger.info("Start strategy of registrations")
         await strategy.start()
-
-    try:
-        async with asyncio.timeout(10):
-            logger.info("check that database prepared correctly")
-            correctly = await database_prepared_correctly(
-                reg_dt=registration_date, users_data=users_data
-            )
-
-        if not correctly:
-            async with asyncio.timeout(7):
-                logger.info("not correctly, prepare database")
-                await prepare_database(
+    
+    if not without_remote_database:
+        try:
+            async with asyncio.timeout(10):
+                logger.info("check that database prepared correctly")
+                correctly = await database_prepared_correctly(
                     reg_dt=registration_date, users_data=users_data
                 )
-    except asyncio.TimeoutError:
-        pass
-    except Exception as e:
-        logger.exception(e)
+
+            if not correctly:
+                async with asyncio.timeout(7):
+                    logger.info("not correctly, prepare database")
+                    await prepare_database(
+                        reg_dt=registration_date, users_data=users_data
+                    )
+        except asyncio.TimeoutError:
+            pass
+        except Exception as e:
+            logger.exception(e)
 
     tz = ZoneInfo("Europe/Moscow")
     logging.getLogger("apscheduler").setLevel(level=logging.ERROR)

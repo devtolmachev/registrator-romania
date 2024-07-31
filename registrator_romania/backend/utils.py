@@ -2,6 +2,7 @@ from datetime import datetime
 import random
 import re
 import string
+from zoneinfo import ZoneInfo
 import dateutil
 from docx import Document
 import gspread_asyncio
@@ -290,3 +291,6 @@ def generate_fake_users_data(n: int = 20):
 
 def filter_by_log_level(loglevels: list[str]):
     return lambda record: record["level"].name in loglevels
+
+def get_dt_moscow() -> datetime:
+    return datetime.now().astimezone(ZoneInfo("Europe/Moscow"))

@@ -129,13 +129,7 @@ HELP_TIP_FORMULAR = f"""
 HELP_PROXY_PROVIDER_URL = """
 Передайте в этот параметр ссылку по которой будет доступен proxy для 
 регистраций.
-"""
 
-HELP_WITHOUT_REMOTE_DATABASE = """
-По умолчанию: no
-
-Передайте yes, и скрипт не будет синхронизироваться с удаленной базой данных 
-для обновления списка пользователей.
 """
 
 
@@ -200,12 +194,6 @@ async def run_docker_compose(containers: int, env_vars: dict):
     default="",
     help=HELP_PROXY_PROVIDER_URL,
 )
-@click.option(
-    "--without_remote_database",
-    required=True,
-    default="no",
-    help=HELP_WITHOUT_REMOTE_DATABASE,
-)
 def main(
     mode: str,
     containers: int,
@@ -218,7 +206,6 @@ def main(
     users_file: str,
     tip_formular: int,
     proxy_provider_url: str,
-    without_remote_database: str
 ):
     assert str(
         tip_formular
@@ -241,9 +228,6 @@ def main(
         "sync",
         "async",
     ], "Параметр mode должен быть либо async, либо sync"
-    assert (
-        without_remote_database in yes_no
-    ), "Параметр without_remote_database, должен быть либо yes, либо no"
 
     users_data = get_users_data_from_xslx(path=users_file)
     assert users_data, "Файл с пользователями неверный, произошла ошибка. Проверьте файл и повторите попытку"
@@ -259,7 +243,6 @@ def main(
         "save_logs": save_logs,
         "users_file": users_file,
         "tip_formular": str(tip_formular),
-        "without_remote_database": without_remote_database,
     }
 
     asyncio.run(run_docker_compose(containers=int(containers), env_vars=env))

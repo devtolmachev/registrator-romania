@@ -2,7 +2,6 @@ import asyncio
 from datetime import date, datetime
 import os
 from pathlib import Path
-from pprint import pprint
 import sys
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -34,7 +33,6 @@ async def main_async(
     users_file: str,
     tip_formular: int,
     proxy_provider_url: str | None,
-    without_remote_database: bool
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
@@ -63,7 +61,7 @@ async def main_async(
 
     async def start_registrations():
         # For debug commented code
-        # users_data = generate_fake_users_data(20)
+        users_data = generate_fake_users_data(5)
         strategy = StrategyWithoutProxy(
             registration_date=registration_date,
             tip_formular=tip_formular,
@@ -74,7 +72,6 @@ async def main_async(
             mode=mode,
             async_requests_num=async_requests_num,
             residental_proxy_url=proxy_provider_url,
-            without_remote_database=without_remote_database,
         )
         logger.info("Start strategy of registrations")
         await strategy.start()
@@ -124,7 +121,6 @@ def main():
     users_file = os.environ["users_file"]
     tip_formular = os.environ["tip_formular"]
     proxy_provider_url = os.environ["proxy_provider_url"]
-    without_remote_database = os.environ["without_remote_database"]
 
     start_time = datetime.now().strptime(start_time, "%H:%M")
     stop_time = datetime.strptime(stop_time, "%H:%M")
@@ -132,7 +128,6 @@ def main():
     use_shuffle = True if "yes" else False
     save_logs = True if "yes" else False
     proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
-    without_remote_database = False if without_remote_database == "no" else True
 
     start_time = (
         datetime.now()
@@ -201,7 +196,6 @@ def main():
             users_file=users_file,
             tip_formular=tip_formular,
             proxy_provider_url=proxy_provider_url,
-            without_remote_database=without_remote_database,
         )
     )
 

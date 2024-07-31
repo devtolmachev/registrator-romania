@@ -461,10 +461,13 @@ class APIRomania:
 
                 return html
             except asyncio.CancelledError as e:
+                print(e)
                 raise e
             except asyncio.TimeoutError as e:
+                print(e)
                 raise e
             except AIOHTTP_NET_ERRORS as e:
+                print(e)
                 return e
             except Exception as e:
                 logger.exception(e)

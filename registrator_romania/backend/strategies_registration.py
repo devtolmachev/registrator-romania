@@ -50,7 +50,6 @@ class StrategyWithoutProxy:
         use_shuffle: bool = True,
         logging: bool = True,
         residental_proxy_url: str = None,
-        without_remote_database: bool = False
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
@@ -65,7 +64,6 @@ class StrategyWithoutProxy:
         self._use_shuffle = use_shuffle
         self._logging = logging
         self._residental_proxy_url = residental_proxy_url
-        self._without_remote_database = without_remote_database
 
     async def start(self):
         if self._users_data:
@@ -139,10 +137,9 @@ class StrategyWithoutProxy:
 
         if api.is_success_registration(html):
             try:
-                if not self._without_remote_database:
-                    async with asyncio.timeout(5):
-                        async with self._db as db:
-                            await db.remove_user(user_data)
+                async with asyncio.timeout(5):
+                    async with self._db as db:
+                        await db.remove_user(user_data)
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
@@ -162,10 +159,9 @@ class StrategyWithoutProxy:
             if error.count("Deja a fost înregistrată o programare"):
                 await queue.put((user_data.copy(), html))
                 try:
-                    if not self._without_remote_database:
-                        async with asyncio.timeout(5):
-                            async with self._db as db:
-                                await db.remove_user(user_data)
+                    async with asyncio.timeout(5):
+                        async with self._db as db:
+                            await db.remove_user(user_data)
                 except asyncio.TimeoutError:
                     pass
                 except Exception as e:
@@ -290,11 +286,10 @@ class StrategyWithoutProxy:
     async def update_users_list(self):
         while True:
             try:
-                if not self._without_remote_database:
-                    async with self._db as db:
-                        self._users_data = await db.get_users_by_reg_date(
-                            self._registration_date
-                        )
+                async with self._db as db:
+                    self._users_data = await db.get_users_by_reg_date(
+                        self._registration_date
+                    )
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
@@ -341,12 +336,11 @@ class StrategyWithoutProxy:
 
     async def add_users_to_db(self):
         try:
-            if not self._without_remote_database:
-                async with self._db as db:
-                    for user_data in self._users_data:
-                        await db.add_user(
-                            user_data, registration_date=self._registration_date
-                        )
+            async with self._db as db:
+                for user_data in self._users_data:
+                    await db.add_user(
+                        user_data, registration_date=self._registration_date
+                    )
         except asyncio.TimeoutError:
             pass
         except Exception as e:

@@ -233,11 +233,17 @@ def run_as_processes(process_count: int, params: dict):
     save_logs = True if "yes" else False
     proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
     without_remote_database = False if without_remote_database == "no" else True
-    multiple_requesting_on = (
-        False
-        if multiple_requesting_on == "no"
-        else datetime.strptime(multiple_requesting_on, "%H:%M:%S")
-    )
+    if multiple_requesting_on == "no":
+        multiple_requesting_on = False
+    else:
+        dt_multiple_registration = datetime.strptime(
+            multiple_requesting_on, "%H:%M:%S"
+        )
+        multiple_requesting_on = get_dt_moscow().replace(
+            hour=dt_multiple_registration.hour,
+            minute=dt_multiple_registration.minute,
+            second=dt_multiple_registration.second
+        )
 
     start_time = (
         datetime.now()
@@ -263,7 +269,7 @@ def run_as_processes(process_count: int, params: dict):
         "tip_formular": tip_formular,
         "without_remote_database": without_remote_database,
         "multiple_requesting_on": multiple_requesting_on,
-        "users_data": users_data
+        "users_data": users_data,
     }
 
     processes: list[Process] = []
@@ -358,7 +364,7 @@ def main(
     assert str(
         containers
     ).isdigit(), "Параметр containers, должен быть целым числом!"
-    
+
     try:
         datetime.strptime(multiple_requesting_on, "%H:%M:%S")
     except:
@@ -391,7 +397,7 @@ def main(
         "tip_formular": str(tip_formular),
         "without_remote_database": without_remote_database,
         "multiple_requesting_on": multiple_requesting_on,
-        "users_data": users_data
+        "users_data": users_data,
     }
 
     assert processes in [

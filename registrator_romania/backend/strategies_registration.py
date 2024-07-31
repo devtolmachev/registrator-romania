@@ -169,7 +169,6 @@ class StrategyWithoutProxy:
         random.shuffle(tasks)
         results = []
         for chunk in divide_list(tasks, divides=30):
-            start = datetime.now()
             results.extend(await asyncio.gather(*chunk, return_exceptions=True))
 
         await self._save_successfully_registration_from_queue(
@@ -232,6 +231,10 @@ class StrategyWithoutProxy:
                     logger.exception(e)
 
             msg = f"successfully registrate {first_name} {last_name}"
+            try:
+                self._users_data.remove(user_data)
+            except:
+                pass
             if self._logging:
                 logger.success(msg)
             await queue.put((user_data.copy(), html))
@@ -295,8 +298,6 @@ class StrategyWithoutProxy:
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
-            while True:
-                await asyncio.sleep(2)
 
         while True:
             logger.debug("Start cycle")

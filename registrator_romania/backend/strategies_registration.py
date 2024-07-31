@@ -295,8 +295,6 @@ class StrategyWithoutProxy:
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
-            while True:
-                await asyncio.sleep(2)
 
         while True:
             logger.debug("Start cycle")

@@ -80,6 +80,7 @@ async def main_async(
         )
         logger.info("Start strategy of registrations")
         await strategy.start()
+        scheduler.remove_job(job_id=job.id)
     
     if not without_remote_database:
         try:
@@ -103,8 +104,8 @@ async def main_async(
     tz = ZoneInfo("Europe/Moscow")
     logging.getLogger("apscheduler").setLevel(level=logging.ERROR)
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        start_registrations, "cron", start_date=start_time, timezone=tz
+    job = scheduler.add_job(
+        start_registrations, "cron", start_date=start_time, timezone=tz, max_instances=1
     )
     scheduler.start()
 

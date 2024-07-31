@@ -452,7 +452,7 @@ class APIRomania:
         session._default_headers = self.headers_registration_url
         async with session:
             try:
-                logger.info("Try to send request on registration endpoint")
+                logger.debug("Try to send request on registration endpoint")
                 async with session.post(
                     self.MAIN_URL, data=data, proxy=proxy
                 ) as resp:

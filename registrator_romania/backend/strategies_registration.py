@@ -197,9 +197,10 @@ class StrategyWithoutProxy:
                 logger.debug(f"Thread {th.name} finished")
 
             logger.debug("All threads finished")
+            scheduler.remove_job(job_id=job.id)
 
         scheduler = BackgroundScheduler()
-        scheduler.add_job(
+        job = scheduler.add_job(
             start_threads,
             "cron",
             start_date=self._multiple_registration_on,
@@ -247,6 +248,12 @@ class StrategyWithoutProxy:
 
             if error.count("Deja a fost înregistrată o programare"):
                 await queue.put((user_data.copy(), html))
+                
+                try:
+                    self._users_data.remove(user_data)
+                except:
+                    pass
+                
                 if self._without_remote_database is False:
                     try:
                         async with asyncio.timeout(5):
@@ -363,7 +370,6 @@ class StrategyWithoutProxy:
                     and now.minute >= self._stop_when[1]
                 ):
                     break
-
         await self._save_success_registrations_in_csv(
             dirname=dirname, success_registrations=successfully_registered
         )
@@ -381,7 +387,7 @@ class StrategyWithoutProxy:
                         df = pd.DataFrame(success_registrations)
                         df.to_csv(str(path), index=False)
                     else:
-                        df1 = pd.read_csv(dirname)
+                        df1 = pd.read_csv(path)
                         df2 = pd.DataFrame(success_registrations)
                         df = pd.concat([df1, df2], ignore_index=True)
                         df.to_csv(path, index=False)
@@ -521,7 +527,7 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 async def main():
     tip = 3
-    reg_date = datetime(year=2024, month=10, day=2)
+    reg_date = datetime(year=2024, month=11, day=20)
 
     data = generate_fake_users_data(5)
     # async with UsersService() as service:

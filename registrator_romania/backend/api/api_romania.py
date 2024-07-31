@@ -424,10 +424,15 @@ class APIRomania:
         proxy: str = None,
         queue: asyncio.Queue = None,
     ):
-        # g_recaptcha_response = await self.get_captcha_token()
         g_recaptcha_response = await self.get_recaptcha_token()
         if not g_recaptcha_response:
-            return
+            import pypasser.exceptions
+            try:
+                g_recaptcha_response = await self.get_captcha_token()
+            except pypasser.exceptions.ConnectionError:
+                pass
+            if not g_recaptcha_response:
+                return
         data = {
             "tip_formular": tip_formular,
             "nume_pasaport": user_data["Nume Pasaport"].strip(),
@@ -447,6 +452,7 @@ class APIRomania:
         session._default_headers = self.headers_registration_url
         async with session:
             try:
+                logger.info("Try to send request on registration endpoint")
                 async with session.post(
                     self.MAIN_URL, data=data, proxy=proxy
                 ) as resp:

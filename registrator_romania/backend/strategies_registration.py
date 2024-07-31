@@ -1,7 +1,9 @@
 import asyncio
 from datetime import datetime, timedelta
 import functools
+import logging
 import os
+from pprint import pprint
 from queue import Queue
 import ssl
 from pathlib import Path
@@ -9,12 +11,13 @@ import platform
 import random
 import sys
 from threading import Thread
+import threading
 import time
 from typing import Literal
 from zoneinfo import ZoneInfo
 import aiofiles
 from loguru import logger
-from pandas import DataFrame
+import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from registrator_romania.backend.api.api_romania import APIRomania
@@ -56,6 +59,8 @@ class StrategyWithoutProxy:
         logging: bool = True,
         residental_proxy_url: str = None,
         multiple_registration_on: datetime = None,
+        multiple_registration_threads: int = 7,
+        without_remote_database: bool = False,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
@@ -71,31 +76,38 @@ class StrategyWithoutProxy:
         self._logging = logging
         self._residental_proxy_url = residental_proxy_url
         self._multiple_registration_on = multiple_registration_on
+        self._multiple_registration_threads = multiple_registration_threads
+        self._without_remote_database = without_remote_database
+
+        self._alock = asyncio.Lock()
+        self._lock = threading.Lock()
 
     async def start(self):
-        if self._users_data:
-            logger.debug("get unregister users")
-            try:
-                async with asyncio.timeout(10):
-                    unregistered_users = await self.get_unregisterer_users()
-                    if unregistered_users:
-                        self._users_data = unregistered_users.copy()
-            except asyncio.TimeoutError:
-                pass
-            except Exception as e:
-                if self._logging:
-                    logger.exception(e)
+        if self._without_remote_database is False:
+            if self._users_data:
+                logger.debug("get unregister users")
+                try:
+                    async with asyncio.timeout(10):
+                        unregistered_users = await self.get_unregisterer_users()
+                        if unregistered_users:
+                            self._users_data = unregistered_users.copy()
+                except asyncio.TimeoutError:
+                    pass
+                except Exception as e:
+                    if self._logging:
+                        logger.exception(e)
 
-            try:
-                logger.debug("add users to database")
-                async with asyncio.timeout(10):
-                    await self.add_users_to_db()
-            except asyncio.TimeoutError:
-                pass
+                try:
+                    logger.debug("add users to database")
+                    async with asyncio.timeout(10):
+                        await self.add_users_to_db()
+                except asyncio.TimeoutError:
+                    pass
 
-        self.update_users_data_task = asyncio.create_task(
-            self.update_users_list()
-        )
+            self.update_users_data_task = asyncio.create_task(
+                self.update_users_list()
+            )
+
         while not self._users_data:
             logger.debug("wait for strategy add users from database")
             await asyncio.sleep(1)
@@ -131,38 +143,47 @@ class StrategyWithoutProxy:
                     logger.exception(e)
                 continue
 
-    async def _start_multiple_registrator(
-        self, thread_queue: Queue, dirname: str
-    ):
+    async def _start_multiple_registrator(self, dirname: str):
         users_data = self._users_data.copy()
         if not users_data:
             return
 
         queue = asyncio.Queue()
-        await self.async_registrations(users_data=users_data, queue=queue)
 
-        queue_2 = asyncio.Queue()
+        async def registrate(user_data: dict):
+            nonlocal queue
 
-        while not queue.empty():
-            data = await queue.get()
-            await queue_2.put(data)
-            thread_queue.put(data)
+            api = APIRomania(debug=self._api._debug)
+            html = await api.make_registration(
+                user_data=user_data,
+                registration_date=self._registration_date,
+                tip_formular=self._tip_formular,
+            )
+            await self.post_registrate(
+                user_data=user_data, html=html, queue=queue
+            )
+            await api._connections_pool.close()
+
+        tasks = [registrate(user_data=user_data) for user_data in users_data]
+        random.shuffle(tasks)
+        results = []
+        for chunk in divide_list(tasks, divides=3):
+            start = datetime.now()
+            results.extend(await asyncio.gather(*chunk, return_exceptions=True))
+
+        print(f"{len(tasks)} registrations finished by {datetime.now()-start}")
+        pprint(results)
 
         await self._save_successfully_registration_from_queue(
-            queue=queue_2, dirname=dirname
+            queue=queue, dirname=dirname
         )
 
     async def schedule_multiple_registrations(self, dirname: str):
-        thread_queue = Queue()
-
         def run_in_thread():
-            nonlocal thread_queue
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(
-                self._start_multiple_registrator(
-                    thread_queue=thread_queue, dirname=dirname
-                )
+                self._start_multiple_registrator(dirname=dirname)
             )
 
         def start_threads():
@@ -171,7 +192,8 @@ class StrategyWithoutProxy:
                 th = Thread(target=run_in_thread)
                 th.start()
                 threads.append(th)
-                time.sleep(2)
+                time.sleep(1)
+                # logger.info(f"Thread {th.name} started")
 
             for th in threads:
                 th.join()
@@ -181,11 +203,14 @@ class StrategyWithoutProxy:
 
         scheduler = BackgroundScheduler()
         scheduler.add_job(
-            run_in_thread,
+            start_threads,
             "cron",
             start_date=self._multiple_registration_on,
             timezone=ZoneInfo("Europe/Moscow"),
+            max_instances=1,
         )
+        scheduler.start()
+        logging.getLogger("apscheduler").setLevel(logging.ERROR)
 
     async def post_registrate(
         self, user_data: dict, html: str, queue: asyncio.Queue
@@ -198,14 +223,15 @@ class StrategyWithoutProxy:
             return
 
         if api.is_success_registration(html):
-            try:
-                async with asyncio.timeout(5):
-                    async with self._db as db:
-                        await db.remove_user(user_data)
-            except asyncio.TimeoutError:
-                pass
-            except Exception as e:
-                logger.exception(e)
+            if self._without_remote_database is False:
+                try:
+                    async with asyncio.timeout(5):
+                        async with self._db as db:
+                            await db.remove_user(user_data)
+                except asyncio.TimeoutError:
+                    pass
+                except Exception as e:
+                    logger.exception(e)
 
             msg = f"successfully registrate {first_name} {last_name}"
             if self._logging:
@@ -220,14 +246,15 @@ class StrategyWithoutProxy:
 
             if error.count("Deja a fost înregistrată o programare"):
                 await queue.put((user_data.copy(), html))
-                try:
-                    async with asyncio.timeout(5):
-                        async with self._db as db:
-                            await db.remove_user(user_data)
-                except asyncio.TimeoutError:
-                    pass
-                except Exception as e:
-                    logger.exception(e)
+                if self._without_remote_database is False:
+                    try:
+                        async with asyncio.timeout(5):
+                            async with self._db as db:
+                                await db.remove_user(user_data)
+                    except asyncio.TimeoutError:
+                        pass
+                    except Exception as e:
+                        logger.exception(e)
 
             msg = f"{first_name} {last_name} - {error}"
             if self._logging:
@@ -263,6 +290,15 @@ class StrategyWithoutProxy:
 
         now = self._get_dt_now()
         dirname = f"registrations_{reg_dt.strftime("%d.%m.%Y")}"
+
+        if self._multiple_registration_on:
+            try:
+                await self.schedule_multiple_registrations(dirname=dirname)
+            except Exception as e:
+                if self._logging:
+                    logger.exception(e)
+            while True:
+                await asyncio.sleep(2)
 
         while True:
             now = self._get_dt_now()
@@ -338,9 +374,18 @@ class StrategyWithoutProxy:
         try:
             fn = f"successfully-registered.csv"
             path = Path().joinpath(dirname, fn)
+            
+            with self._lock:
+                async with self._alock:
+                    if not os.path.exists(path):
+                        df = pd.DataFrame(success_registrations)
+                        df.to_csv(str(path), index=False)
+                    else:
+                        df1 = pd.read_csv(dirname)
+                        df2 = pd.DataFrame(success_registrations)
+                        df = pd.concat([df1, df2], ignore_index=True)
+                        df.to_csv(path, index=False)
 
-            df = DataFrame(success_registrations)
-            df.to_csv(str(path), index=False)
         except Exception as e:
             logger.exception(e)
 
@@ -428,6 +473,9 @@ class StrategyWithoutProxy:
         return unregistered_users
 
     async def add_users_to_db(self):
+        if self._without_remote_database is True:
+            return
+        
         try:
             async with self._db as db:
                 for user_data in self._users_data:
@@ -471,7 +519,7 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 async def main():
     tip = 3
-    reg_date = datetime(year=2024, month=11, day=20)
+    reg_date = datetime(year=2024, month=10, day=2)
 
     data = generate_fake_users_data(5)
     # async with UsersService() as service:
@@ -480,6 +528,7 @@ async def main():
     # if not await database_prepared_correctly(reg_date, data):
     #     await prepare_database(reg_date, data)
 
+    multiple_requests = datetime.now()
     strategy = StrategyWithoutProxy(
         registration_date=reg_date,
         tip_formular=tip,
@@ -488,6 +537,9 @@ async def main():
         residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
         # residental_proxy_url=None,
         async_requests_num=2,
+        multiple_registration_on=multiple_requests,
+        multiple_registration_threads=2,
+        without_remote_database=True,
     )
     await strategy.start()
 

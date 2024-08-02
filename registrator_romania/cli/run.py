@@ -18,6 +18,7 @@ from registrator_romania.backend.strategies_registration import (
 from registrator_romania.backend.utils import (
     filter_by_log_level,
     generate_fake_users_data,
+    get_dt_moscow,
     get_users_data_from_xslx,
 )
 
@@ -110,7 +111,8 @@ async def main_async(
     scheduler.start()
 
     while True:
-        dt_now = datetime.now().astimezone(tz)
+        dt_now = get_dt_moscow()
+        print(dt_now)
         await asyncio.sleep(60)
         if dt_now.hour == stop_time.hour and dt_now.minute >= dt.minute:
             return

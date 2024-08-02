@@ -36,6 +36,7 @@ from registrator_romania.backend.utils import (
     divide_list,
     filter_by_log_level,
     generate_fake_users_data,
+    get_users_data_from_xslx,
 )
 from registrator_romania.backend.utils import get_dt_moscow
 from registrator_romania.frontend.telegram_bot.alerting import (
@@ -530,6 +531,7 @@ async def main():
     reg_date = datetime(year=2024, month=11, day=20)
 
     data = generate_fake_users_data(5)
+    data = get_users_data_from_xslx("users.xlsx")
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
 

@@ -219,6 +219,12 @@ def get_users_data_from_xslx(path: str = None):
         if not data:
             assert row
             row = keys.copy()
+        row = list(row)
+        
+        if row and any(not isinstance(v, str) for v in row):
+            for v in row:
+                if isinstance(v, datetime):
+                    row[row.index(v)] = v.strftime("%Y-%m-%d")
 
         data.append(row)
     df = pd.DataFrame(data)

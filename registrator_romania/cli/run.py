@@ -112,9 +112,8 @@ async def main_async(
 
     while True:
         dt_now = get_dt_moscow()
-        print(dt_now)
         await asyncio.sleep(60)
-        if dt_now.hour == stop_time.hour and dt_now.minute >= dt.minute:
+        if dt_now.hour == stop_time.hour and dt_now.minute >= stop_time.minute:
             return
 
 

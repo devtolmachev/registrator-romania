@@ -371,9 +371,10 @@ class StrategyWithoutProxy:
                     and now.minute >= self._stop_when[1]
                 ):
                     break
-        await self._save_success_registrations_in_csv(
-            dirname=dirname, success_registrations=successfully_registered
-        )
+        if successfully_registered:
+            await self._save_success_registrations_in_csv(
+                dirname=dirname, success_registrations=successfully_registered
+            )
 
     async def _save_success_registrations_in_csv(
         self, dirname: str, success_registrations: list
@@ -527,8 +528,8 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 3
-    reg_date = datetime(year=2024, month=11, day=20)
+    tip = 4
+    reg_date = datetime(year=2024, month=12, day=2)
 
     data = generate_fake_users_data(5)
     data = get_users_data_from_xslx("users.xlsx")

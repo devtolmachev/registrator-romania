@@ -253,7 +253,7 @@ def run_as_processes(process_count: int, params: dict):
     stop_time = (
         datetime.now()
         .astimezone(ZoneInfo("Europe/Moscow"))
-        .replace(hour=start_time.hour, minute=start_time.minute)
+        .replace(hour=stop_time.hour, minute=stop_time.minute)
     )
 
     kw = {
@@ -417,8 +417,8 @@ def main(
         datetime.now()
         .astimezone(ZoneInfo("Europe/Moscow"))
         .replace(
-            hour=int(stop_time.split(":")[0]),
-            minute=int(stop_time.split(":")[1]),
+            hour=int(stop_time.split(":")[0].strip()),
+            minute=int(stop_time.split(":")[1].strip()),
         )
     )
 

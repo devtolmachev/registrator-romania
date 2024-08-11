@@ -322,9 +322,7 @@ class StrategyWithoutProxy:
                             day=reg_dt.day,
                             year=reg_dt.year,
                         )
-                        if not places:
-                            logger.debug(f"{places} places")
-                            continue
+                        
                 except asyncio.TimeoutError:
                     pass
 

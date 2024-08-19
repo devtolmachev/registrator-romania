@@ -170,6 +170,13 @@ HELP_MULTIPLE_REQUESTING_ON = """
 пользователи без задержек.
 """
 
+HELP_MULTIPLE_REQUESTING_THREADS = """
+По умолчанию: 7
+
+Количество потоков которые будут запускаться с интервалом в 1 секунду во время
+которое вы передали в параметр --multiple_requesting_on
+"""
+
 
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
@@ -225,6 +232,7 @@ def run_as_processes(process_count: int, params: dict):
     without_remote_database = params["without_remote_database"]
     multiple_requesting_on = params["multiple_requesting_on"]
     users_data = params["users_data"]
+    multiple_requesting_threads = params["multiple_requesting_threads"]
 
     start_time = datetime.now().strptime(start_time, "%H:%M")
     stop_time = datetime.strptime(stop_time, "%H:%M")
@@ -270,6 +278,7 @@ def run_as_processes(process_count: int, params: dict):
         "without_remote_database": without_remote_database,
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
+        "multiple_requesting_threads": multiple_requesting_threads,
     }
 
     processes: list[Process] = []
@@ -321,7 +330,12 @@ def run_as_processes(process_count: int, params: dict):
 @click.option(
     "--multiple_requesting_on",
     default="no",
-    help=HELP_WITHOUT_REMOTE_DATABASE,
+    help=HELP_MULTIPLE_REQUESTING_ON,
+)
+@click.option(
+    "--multiple_requesting_threads",
+    default=7,
+    help=HELP_MULTIPLE_REQUESTING_THREADS,
 )
 def main(
     mode: str,
@@ -339,6 +353,7 @@ def main(
     fake_users: str,
     without_remote_database: str,
     multiple_requesting_on: str,
+    multiple_requesting_threads: int,
 ):
     assert str(
         tip_formular
@@ -364,6 +379,9 @@ def main(
     assert str(
         containers
     ).isdigit(), "Параметр containers, должен быть целым числом!"
+    assert str(
+        multiple_requesting_threads
+    ).isdigit(), "Параметр multiple_requesting_threads, должен быть целым числом!"
 
     try:
         datetime.strptime(multiple_requesting_on, "%H:%M:%S")
@@ -398,6 +416,7 @@ def main(
         "without_remote_database": without_remote_database,
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
+        "multiple_requesting_threads": multiple_requesting_threads,
     }
 
     assert processes in [

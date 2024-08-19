@@ -462,7 +462,7 @@ class StrategyWithoutProxy:
             )
             if not response:
                 return users_data
-        except AIOHTTP_NET_ERRORS:
+        except AIOHTTP_NET_ERRORS as e:
             return users_data
 
         registered_users = response["data"]
@@ -529,7 +529,7 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 async def main():
     tip = 4
-    reg_date = datetime(year=2024, month=12, day=2)
+    reg_date = datetime(year=2024, month=12, day=10)
 
     data = generate_fake_users_data(5)
     data = get_users_data_from_xslx("users.xlsx")

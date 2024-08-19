@@ -36,7 +36,8 @@ async def main_async(
     proxy_provider_url: str | None,
     without_remote_database: bool,
     multiple_requesting_on: datetime | bool,
-    users_data: list[dict]
+    users_data: list[dict],
+    multiple_requesting_threads: int,
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
@@ -78,6 +79,7 @@ async def main_async(
             residental_proxy_url=proxy_provider_url,
             without_remote_database=without_remote_database,
             multiple_registration_on=multiple_requesting_on,
+            multiple_registration_threads=multiple_requesting_threads
         )
         logger.info("Start strategy of registrations")
         await strategy.start()
@@ -129,6 +131,7 @@ def main():
     users_file = os.environ["users_file"]
     tip_formular = os.environ["tip_formular"]
     proxy_provider_url = os.environ["proxy_provider_url"]
+    multiple_requesting_threads = os.environ["multiple_requesting_threads"]
 
     start_time = datetime.now().strptime(start_time, "%H:%M")
     stop_time = datetime.strptime(stop_time, "%H:%M")
@@ -204,6 +207,7 @@ def main():
             users_file=users_file,
             tip_formular=tip_formular,
             proxy_provider_url=proxy_provider_url,
+            multiple_requesting_threads=multiple_requesting_threads
         )
     )
 

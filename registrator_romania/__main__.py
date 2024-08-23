@@ -177,6 +177,26 @@ HELP_MULTIPLE_REQUESTING_THREADS = """
 которое вы передали в параметр --multiple_requesting_on
 """
 
+HELP_PROXY_FILE = """
+По умолчанию: не указано
+
+Передайте полный путь до файла где со списком прокси. Формат файла должен 
+быть таким.
+
+```file
+http://127.87.97:8080
+http://127.87.97:8080
+http://127.87.97:8080
+http://127.87.97:8080
+http://127.87.97:8080
+https://127.87.97:8080
+https://127.87.97:8080
+https://127.87.97:8080
+https://127.87.97:8080
+https://127.87.97:8080
+```
+"""
+
 
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
@@ -241,6 +261,8 @@ def run_as_processes(process_count: int, params: dict):
     save_logs = True if "yes" else False
     proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
     without_remote_database = False if without_remote_database == "no" else True
+    proxy_file = params["proxy_file"]
+    
     if multiple_requesting_on == "no":
         multiple_requesting_on = False
     else:
@@ -279,6 +301,7 @@ def run_as_processes(process_count: int, params: dict):
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
+        "proxy_file": proxy_file
     }
 
     processes: list[Process] = []
@@ -337,6 +360,11 @@ def run_as_processes(process_count: int, params: dict):
     default=7,
     help=HELP_MULTIPLE_REQUESTING_THREADS,
 )
+@click.option(
+    "--proxy_file",
+    default="",
+    help=HELP_PROXY_FILE,
+)
 def main(
     mode: str,
     containers: int,
@@ -354,6 +382,7 @@ def main(
     without_remote_database: str,
     multiple_requesting_on: str,
     multiple_requesting_threads: int,
+    proxy_file: str
 ):
     assert str(
         tip_formular
@@ -401,6 +430,8 @@ def main(
         assert users_data, "Файл с пользователями неверный, произошла ошибка. Проверьте файл и повторите попытку"
     else:
         users_data = generate_fake_users_data(n=int(fake_users))
+        
+    assert os.path.isfile(proxy_file), "Вы передали неправильный путь до файла с проксями"
 
     env = {
         "proxy_provider_url": proxy_provider_url,
@@ -417,6 +448,7 @@ def main(
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
+        "proxy_file": proxy_file
     }
 
     assert processes in [

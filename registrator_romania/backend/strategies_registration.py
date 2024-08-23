@@ -5,6 +5,7 @@ import logging
 import os
 from pprint import pprint
 from queue import Queue
+import re
 import ssl
 from pathlib import Path
 import platform
@@ -63,6 +64,7 @@ class StrategyWithoutProxy:
         multiple_registration_on: datetime = None,
         multiple_registration_threads: int = 7,
         without_remote_database: bool = False,
+        proxies_file: str = None,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
@@ -84,6 +86,8 @@ class StrategyWithoutProxy:
         self._alock = asyncio.Lock()
         self._lock = threading.Lock()
 
+        self._proxies_file_path = proxies_file
+
     async def start(self):
         if self._users_data:
             logger.debug("get unregister users")
@@ -97,7 +101,7 @@ class StrategyWithoutProxy:
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
-                    
+
             if self._without_remote_database is False:
                 try:
                     logger.debug("add users to database")
@@ -106,9 +110,7 @@ class StrategyWithoutProxy:
                 except asyncio.TimeoutError:
                     pass
 
-        self.update_users_data_task = asyncio.create_task(
-            self.update_users_list()
-        )
+        self.update_users_data_task = asyncio.create_task(self.update_users_list())
 
         while not self._users_data:
             logger.debug("wait for strategy add users from database")
@@ -118,9 +120,7 @@ class StrategyWithoutProxy:
     def _get_dt_now(self) -> datetime:
         return get_dt_moscow()
 
-    async def async_registrations(
-        self, users_data: list[dict], queue: asyncio.Queue
-    ):
+    async def async_registrations(self, users_data: list[dict], queue: asyncio.Queue):
         api = self._api
         reg_dt = self._registration_date
         proxy = self._residental_proxy_url
@@ -132,9 +132,7 @@ class StrategyWithoutProxy:
                 tip_formular=self._tip_formular,
                 proxy=proxy,
             )
-            await self.post_registrate(
-                user_data=user_data, html=html, queue=queue
-            )
+            await self.post_registrate(user_data=user_data, html=html, queue=queue)
 
         tasks = [registrate(user_data) for user_data in users_data]
         for chunk in divide_list(tasks, divides=self._async_requests_num):
@@ -151,19 +149,43 @@ class StrategyWithoutProxy:
             return
 
         queue = asyncio.Queue()
+        proxies = None
+        if self._proxies_file_path:
+            with open(self._proxies_file_path) as f:
+                src_list_proxies = f.read().splitlines()
+                proxies = iter(src_list_proxies)
 
         async def registrate(user_data: dict):
-            nonlocal queue
+            nonlocal queue, proxies
+
+            proxy = None
+            if proxies:
+                try:
+                    proxy = next(proxies)
+                except StopIteration:
+                    proxies = iter(src_list_proxies)
+                    proxy = src_list_proxies[0]
+
+                proxies_range = re.search(r"<(\d+-\d+)>", proxy)
+                if proxies_range:
+                    proxies_range = proxies_range.group(1)
+                    start_port, stop_port = proxies_range.split("-")
+                    proxy = re.sub(
+                        r"<\d+-\d+>",
+                        str(
+                            random.randrange(start=int(start_port), stop=int(stop_port))
+                        ),
+                        proxy,
+                    )
 
             api = APIRomania(debug=self._api._debug)
             html = await api.make_registration(
                 user_data=user_data,
                 registration_date=self._registration_date,
                 tip_formular=self._tip_formular,
+                proxy=proxy,
             )
-            await self.post_registrate(
-                user_data=user_data, html=html, queue=queue
-            )
+            await self.post_registrate(user_data=user_data, html=html, queue=queue)
             await api._connections_pool.close()
 
         tasks = [registrate(user_data=user_data) for user_data in users_data]
@@ -180,9 +202,7 @@ class StrategyWithoutProxy:
         def run_in_thread():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                self._start_multiple_registrator(dirname=dirname)
-            )
+            loop.run_until_complete(self._start_multiple_registrator(dirname=dirname))
 
         def start_threads():
             threads: list[Thread] = []
@@ -211,9 +231,7 @@ class StrategyWithoutProxy:
         scheduler.start()
         logging.getLogger("apscheduler").setLevel(logging.ERROR)
 
-    async def post_registrate(
-        self, user_data: dict, html: str, queue: asyncio.Queue
-    ):
+    async def post_registrate(self, user_data: dict, html: str, queue: asyncio.Queue):
         first_name = user_data["Prenume Pasaport"]
         last_name = user_data["Nume Pasaport"]
         api = self._api
@@ -249,12 +267,12 @@ class StrategyWithoutProxy:
 
             if error.count("Deja a fost înregistrată o programare"):
                 await queue.put((user_data.copy(), html))
-                
+
                 try:
                     self._users_data.remove(user_data)
                 except:
                     pass
-                
+
                 if self._without_remote_database is False:
                     try:
                         async with asyncio.timeout(5):
@@ -269,9 +287,7 @@ class StrategyWithoutProxy:
             if self._logging:
                 logger.error(msg)
 
-    async def sync_registrations(
-        self, users_data: list[dict], queue: asyncio.Queue
-    ):
+    async def sync_registrations(self, users_data: list[dict], queue: asyncio.Queue):
         api = self._api
         reg_dt = self._registration_date
         proxy = self._residental_proxy_url
@@ -366,10 +382,7 @@ class StrategyWithoutProxy:
                 ):
                     break
 
-                if (
-                    now.hour == self._stop_when[0]
-                    and now.minute >= self._stop_when[1]
-                ):
+                if now.hour == self._stop_when[0] and now.minute >= self._stop_when[1]:
                     break
         if successfully_registered:
             await self._save_success_registrations_in_csv(
@@ -382,7 +395,7 @@ class StrategyWithoutProxy:
         try:
             fn = f"successfully-registered.csv"
             path = Path().joinpath(dirname, fn)
-            
+
             with self._lock:
                 async with self._alock:
                     if not os.path.exists(path):
@@ -485,7 +498,7 @@ class StrategyWithoutProxy:
     async def add_users_to_db(self):
         if self._without_remote_database is True:
             return
-        
+
         try:
             async with self._db as db:
                 for user_data in self._users_data:
@@ -500,9 +513,7 @@ class StrategyWithoutProxy:
 
 async def prepare_database(reg_dt: datetime, users_data: list[dict]):
     async with UsersService() as service:
-        users_from_db = await service.get_users_by_reg_date(
-            registration_date=reg_dt
-        )
+        users_from_db = await service.get_users_by_reg_date(registration_date=reg_dt)
 
         if all(u in users_from_db for u in users_data):
             return
@@ -518,9 +529,7 @@ async def prepare_database(reg_dt: datetime, users_data: list[dict]):
 
 async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
     async with UsersService() as service:
-        users_from_db = await service.get_users_by_reg_date(
-            registration_date=reg_dt
-        )
+        users_from_db = await service.get_users_by_reg_date(registration_date=reg_dt)
 
         if all(u in users_from_db for u in users_data):
             return True
@@ -528,11 +537,11 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 4
+    tip = 2
     reg_date = datetime(year=2024, month=12, day=10)
 
     data = generate_fake_users_data(5)
-    data = get_users_data_from_xslx("users.xlsx")
+    # data = get_users_data_from_xslx("users.xlsx")
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
 
@@ -551,6 +560,7 @@ async def main():
         multiple_registration_on=multiple_requests,
         multiple_registration_threads=2,
         without_remote_database=True,
+        proxies_file="proxies.txt",
     )
     await strategy.start()
 

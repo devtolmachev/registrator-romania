@@ -12,6 +12,8 @@ registrations*
 *.xlsx
 *.docx
 *.log
+*.txt
+poetry.lock
 
 # C extensions
 *.so

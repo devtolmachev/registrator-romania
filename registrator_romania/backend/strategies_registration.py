@@ -291,8 +291,36 @@ class StrategyWithoutProxy:
         api = self._api
         reg_dt = self._registration_date
         proxy = self._residental_proxy_url
+        proxies = None
+        
+        if self._proxies_file_path:
+            with open(self._proxies_file_path) as f:
+                src_list_proxies = f.read().splitlines()
+                if proxy:
+                    src_list_proxies.append(proxy)
+                proxies = iter(src_list_proxies)
 
         for user_data in users_data:
+            
+            if proxies:
+                try:
+                    proxy = next(proxies)
+                except StopIteration:
+                    proxies = iter(src_list_proxies)
+                    proxy = src_list_proxies[0]
+            
+            proxies_range = re.search(r"<(\d+-\d+)>", proxy)
+            if proxies_range:
+                proxies_range = proxies_range.group(1)
+                start_port, stop_port = proxies_range.split("-")
+                proxy = re.sub(
+                    r"<\d+-\d+>",
+                    str(
+                        random.randrange(start=int(start_port), stop=int(stop_port))
+                    ),
+                    proxy,
+                )
+            
             try:
                 html = await api.make_registration(
                     user_data,
@@ -557,8 +585,8 @@ async def main():
         # residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
         residental_proxy_url=None,
         async_requests_num=2,
-        multiple_registration_on=multiple_requests,
-        multiple_registration_threads=2,
+        # multiple_registration_on=multiple_requests,
+        # multiple_registration_threads=2,
         without_remote_database=True,
         proxies_file="proxies.txt",
     )

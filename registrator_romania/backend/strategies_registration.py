@@ -65,6 +65,7 @@ class StrategyWithoutProxy:
         multiple_registration_threads: int = 7,
         without_remote_database: bool = False,
         proxies_file: str = None,
+        only_multiple: bool = True,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
@@ -87,6 +88,7 @@ class StrategyWithoutProxy:
         self._lock = threading.Lock()
 
         self._proxies_file_path = proxies_file
+        self._only_multiple = only_multiple
 
     async def start(self):
         if self._users_data:
@@ -292,7 +294,7 @@ class StrategyWithoutProxy:
         reg_dt = self._registration_date
         proxy = self._residental_proxy_url
         proxies = None
-        
+
         if self._proxies_file_path:
             with open(self._proxies_file_path) as f:
                 src_list_proxies = f.read().splitlines()
@@ -301,26 +303,23 @@ class StrategyWithoutProxy:
                 proxies = iter(src_list_proxies)
 
         for user_data in users_data:
-            
             if proxies:
                 try:
                     proxy = next(proxies)
                 except StopIteration:
                     proxies = iter(src_list_proxies)
                     proxy = src_list_proxies[0]
-            
+
             proxies_range = re.search(r"<(\d+-\d+)>", proxy)
             if proxies_range:
                 proxies_range = proxies_range.group(1)
                 start_port, stop_port = proxies_range.split("-")
                 proxy = re.sub(
                     r"<\d+-\d+>",
-                    str(
-                        random.randrange(start=int(start_port), stop=int(stop_port))
-                    ),
+                    str(random.randrange(start=int(start_port), stop=int(stop_port))),
                     proxy,
                 )
-            
+
             try:
                 html = await api.make_registration(
                     user_data,
@@ -334,6 +333,31 @@ class StrategyWithoutProxy:
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
+                    
+    def _get_proxies_from_proxy_list(self) -> list[str] | list:
+        if self._proxies_file_path:
+            proxies = []
+            with open(self._proxies_file_path) as f:
+                src_list_proxies = f.read().splitlines()
+                
+            for proxy in src_list_proxies:
+                proxies_range = re.search(r"<(\d+-\d+)>", proxy)
+                if proxies_range:
+                    proxies_range = proxies_range.group(1)
+                    start_port, stop_port = proxies_range.split("-")
+                    proxy = re.sub(
+                        r"<\d+-\d+>",
+                        str(
+                            random.randrange(start=int(start_port), stop=int(stop_port))
+                        ),
+                        proxy,
+                    )
+                    
+                proxies.append(proxy)
+                
+            return proxies
+        else:
+            return []
 
     async def start_registration(self):
         api = self._api
@@ -343,6 +367,26 @@ class StrategyWithoutProxy:
 
         now = self._get_dt_now()
         dirname = f"registrations_{reg_dt.strftime("%d.%m.%Y")}"
+
+        if self._proxies_file_path:
+            proxies = self._get_proxies_from_proxy_list()
+
+            try:
+                places = await asyncio.gather(
+                    *[
+                        api.get_free_places_for_date(
+                            tip_formular=self._tip_formular,
+                            month=reg_dt.month,
+                            day=reg_dt.day,
+                            year=reg_dt.year,
+                            proxy=p
+                        )
+                        for p in proxies
+                    ],
+                    return_exceptions=True
+                )
+            except BaseException as e:
+                logger.exception(e)
 
         if self._multiple_registration_on:
             try:
@@ -356,6 +400,18 @@ class StrategyWithoutProxy:
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
             users_for_registrate = self._users_data.copy()
+
+            if (
+                len(successfully_registered) >= len(self._users_data.copy())
+                or not users_for_registrate
+            ):
+                break
+
+            if now.hour == self._stop_when[0] and now.minute >= self._stop_when[1]:
+                break
+
+            if self._only_multiple:
+                continue
 
             try:
                 try:
@@ -403,15 +459,6 @@ class StrategyWithoutProxy:
                 pass
             except Exception as e:
                 logger.exception(e)
-            finally:
-                if (
-                    len(successfully_registered) >= len(self._users_data.copy())
-                    or not users_for_registrate
-                ):
-                    break
-
-                if now.hour == self._stop_when[0] and now.minute >= self._stop_when[1]:
-                    break
         if successfully_registered:
             await self._save_success_registrations_in_csv(
                 dirname=dirname, success_registrations=successfully_registered
@@ -566,9 +613,10 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 async def main():
     tip = 2
-    reg_date = datetime(year=2024, month=12, day=10)
+    reg_date = datetime(year=2024, month=12, day=3)
+    logger.add("logs.log")
 
-    data = generate_fake_users_data(5)
+    data = generate_fake_users_data(40)
     # data = get_users_data_from_xslx("users.xlsx")
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
@@ -585,10 +633,11 @@ async def main():
         # residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
         residental_proxy_url=None,
         async_requests_num=2,
-        # multiple_registration_on=multiple_requests,
-        # multiple_registration_threads=2,
+        multiple_registration_on=multiple_requests,
+        multiple_registration_threads=10,
         without_remote_database=True,
         proxies_file="proxies.txt",
+        # stop_when=multiple_requests + timedelta(seconds=15)
     )
     await strategy.start()
 

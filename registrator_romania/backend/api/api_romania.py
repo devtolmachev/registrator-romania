@@ -461,18 +461,29 @@ class APIRomania:
         async with session:
             try:
                 url = self.MAIN_URL
+                name = f"{data["nume_pasaport"]} {data["prenume_pasaport"]}"
                 logger.debug(
-                    f"{self._current_info()} send request on {url}, "
-                    f"proxy: {proxy}"
+                    f"{self._current_info()} send request on {url}. "
+                    f"proxy: {proxy}, name: {name}"
                 )
                 
                 async with session.post(url, data=data, proxy=proxy) as resp:
+                    html = await resp.text()
+                    try:
+                        success = self.is_success_registration(html)
+                    except:
+                        success = False
+                        
+                    try:
+                        error = self.get_error_registration_as_text(html)
+                    except:
+                        error = ""
+                        
                     logger.debug(
                         f"{self._current_info()} get response from "
-                        f"{url}: <big response>, "
-                        f"proxy: {proxy}"
+                        f"{url}. success: {success}, error: {error}, "
+                        f"proxy: {proxy}, name: {name}"
                     )
-                    html = await resp.text()
 
                 if not isinstance(html, str):
                     return

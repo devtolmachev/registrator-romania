@@ -86,7 +86,9 @@ class APIRomania:
         "&size=invisible&cb=ulevyud5loaq"
     )
 
-    def __init__(self, debug: bool = False, semaphore_value: int = 15) -> None:
+    def __init__(
+        self, debug: bool = False, semaphore_value: int = 15, verifi_ssl: bool = True
+    ) -> None:
         self._sessionmaker = AiohttpSession()
         self._connections_pool = self._sessionmaker.generate_connector()
         self._proxy_pool: AutomaticProxyPool = None
@@ -94,6 +96,7 @@ class APIRomania:
         self._main_html = None
         self._lock = asyncio.Lock()
         self._semaphore = asyncio.Semaphore(semaphore_value)
+        self._ssl = verifi_ssl
 
     async def get_proxy_pool(self, offset: int = 0):
         if not self._proxy_pool:
@@ -119,7 +122,7 @@ class APIRomania:
         url_get = f"{base_url}/{data["endpoint"]}/anchor?{data["params"]}"
         async with session:
             try:
-                async with session.get(url_get, proxy=proxy) as resp:
+                async with session.get(url_get, proxy=proxy, ssl=self._ssl) as resp:
                     response = await resp.text()
 
                 results = re.findall(r'"recaptcha-token" value="(.*?)"', response)
@@ -134,7 +137,7 @@ class APIRomania:
 
                 url_post = f"{base_url}/{data["endpoint"]}/reload?k={params["k"]}"
                 async with session.post(
-                    url_post, data=this_post_data, proxy=proxy
+                    url_post, data=this_post_data, proxy=proxy, ssl=self._ssl
                 ) as resp:
                     response = await resp.text()
 
@@ -272,10 +275,13 @@ class APIRomania:
 
         async with session:
             proxies = [None]
-            while True:
+            last_exc = None
+            for _ in range(5):
                 try:
                     for proxy in proxies:
-                        async with session.get(self.MAIN_URL, proxy=proxy) as resp:
+                        async with session.get(
+                            self.MAIN_URL, proxy=proxy, ssl=self._ssl
+                        ) as resp:
                             reason = resp.reason.lower()
 
                             if reason.count("forbidden") and proxies == [None]:
@@ -289,13 +295,17 @@ class APIRomania:
 
                             return await resp.text()
 
-                except AIOHTTP_NET_ERRORS:
+                except AIOHTTP_NET_ERRORS as e:
+                    last_exc = e
                     await asyncio.sleep(1.5)
                     continue
+            raise last_exc
 
     async def get_session(
-        self, with_proxy_if_exists: bool = True, timeout: int = 5
+        self, with_proxy_if_exists: bool = True, timeout: int = None
     ) -> aiohttp.ClientSession:
+        if not timeout:
+            timeout = 5
         if self._proxy_pool and with_proxy_if_exists:
             return await self._proxy_pool.get_session(timeout=timeout)
         return self._sessionmaker.generate(
@@ -340,7 +350,9 @@ class APIRomania:
         form_data.add_field("tip_formular", str(tip_formular))
         async with session:
             try:
-                async with session.post(self.STATUS_DAYS_URL, data=form_data) as resp:
+                async with session.post(
+                    self.STATUS_DAYS_URL, data=form_data, ssl=self._ssl
+                ) as resp:
                     raw = await resp.read()
                     response = await resp.json(content_type=resp.content_type)
             except Exception:
@@ -406,11 +418,12 @@ class APIRomania:
             try:
                 url = self.STATUS_PLACES_URL
                 logger.debug(
-                    f"{self._current_info()} send request on {url}, "
-                    f"proxy: {proxy}"
+                    f"{self._current_info()} send request on {url}, " f"proxy: {proxy}"
                 )
-                
-                async with session.post(url, data=form_data, proxy=proxy) as resp:
+
+                async with session.post(
+                    url, data=form_data, proxy=proxy, ssl=self._ssl
+                ) as resp:
                     raw = await resp.read()
                     logger.debug(
                         f"{self._current_info()} get response from "
@@ -430,6 +443,7 @@ class APIRomania:
         tip_formular: int,
         proxy: str = None,
         queue: asyncio.Queue = None,
+        timeout: int = None,
     ):
         g_recaptcha_response = await self.get_recaptcha_token(proxy=proxy)
         if not g_recaptcha_response:
@@ -456,7 +470,7 @@ class APIRomania:
             "honeypot": "",
             "g-recaptcha-response": g_recaptcha_response,
         }
-        session = await self.get_session(with_proxy_if_exists=False)
+        session = await self.get_session(with_proxy_if_exists=False, timeout=timeout)
         session._default_headers = self.headers_registration_url
         async with session:
             try:
@@ -466,27 +480,29 @@ class APIRomania:
                     f"{self._current_info()} send request on {url}. "
                     f"proxy: {proxy}, name: {name}"
                 )
-                
-                async with session.post(url, data=data, proxy=proxy) as resp:
+                async with session.post(
+                    url, data=data, proxy=proxy, ssl=self._ssl
+                ) as resp:
                     html = await resp.text()
+
+                    if not isinstance(html, str):
+                        return
+
                     try:
                         success = self.is_success_registration(html)
                     except:
                         success = False
-                        
+
                     try:
                         error = self.get_error_registration_as_text(html)
                     except:
                         error = ""
-                        
-                    logger.debug(
-                        f"{self._current_info()} get response from "
-                        f"{url}. success: {success}, error: {error}, "
-                        f"proxy: {proxy}, name: {name}"
-                    )
 
-                if not isinstance(html, str):
-                    return
+                logger.debug(
+                    f"{self._current_info()} get response from "
+                    f"{url}. success: {success}, error: {error}, "
+                    f"proxy: {proxy}, name: {name}"
+                )
 
                 if self.is_success_registration(html):
                     if queue:

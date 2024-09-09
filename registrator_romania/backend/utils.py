@@ -1,8 +1,10 @@
 from datetime import datetime
+from pathlib import Path
 from pprint import pprint
 import random
 import re
 import string
+import sys
 from zoneinfo import ZoneInfo
 import dateutil
 from docx import Document
@@ -161,10 +163,37 @@ def get_users_data_from_docx():
     return prepare_users_data(users)
 
 
-def get_users_data_from_csv():
-    df = pd.read_csv("users.csv")
+def get_users_data_from_csv(file_path: str = None):
+    if file_path:    
+        df = pd.read_csv(file_path)
+    else:
+        df = pd.read_csv("users.csv")
+        
     users_data = df.to_dict("records")
     return prepare_users_data(users_data)
+
+
+def setup_loggers(registration_date: datetime, save_logs: bool = True):
+    dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
+
+    if save_logs:
+        logger.remove()
+        logger.add(
+            sys.stderr,
+            filter=filter_by_log_level(loglevels=["INFO", "SUCCESS", "ERROR"]),
+        )
+        logger.add(
+            Path().joinpath(dirpath, "errors.log"),
+            filter=filter_by_log_level(loglevels=["ERROR"]),
+        )
+        logger.add(
+            Path().joinpath(dirpath, "debug.log"),
+            filter=filter_by_log_level(loglevels=["DEBUG"]),
+        )
+        logger.add(
+            Path().joinpath(dirpath, "success.log"),
+            filter=filter_by_log_level(loglevels=["SUCCESS"]),
+        )
 
 
 def get_users_data_from_txt():

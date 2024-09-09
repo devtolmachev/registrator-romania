@@ -1,5 +1,6 @@
 
 import aiohttp
+import orjson
 
 
 class AiohttpSession:
@@ -22,7 +23,7 @@ class AiohttpSession:
         session = aiohttp.ClientSession(
             trust_env=True,
             connector=connector,
-            # json_serialize=orjson.dumps,
+            json_serialize=orjson.dumps,
             connector_owner=close_connector,
             timeout=timeout,
         )

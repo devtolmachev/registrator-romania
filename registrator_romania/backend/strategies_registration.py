@@ -66,6 +66,8 @@ class StrategyWithoutProxy:
         without_remote_database: bool = False,
         proxies_file: str = None,
         only_multiple: bool = True,
+        requests_per_user: int = None,
+        requests_on_user_per_second: int = None,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]
@@ -83,6 +85,8 @@ class StrategyWithoutProxy:
         self._multiple_registration_on = multiple_registration_on
         self._multiple_registration_threads = multiple_registration_threads
         self._without_remote_database = without_remote_database
+        self._requests_per_user = requests_per_user
+        self._requests_on_user_per_second = requests_on_user_per_second
 
         self._alock = asyncio.Lock()
         self._lock = threading.Lock()
@@ -147,8 +151,13 @@ class StrategyWithoutProxy:
 
     async def _start_multiple_registrator(self, dirname: str):
         users_data = self._users_data.copy()
+        
         if not users_data:
             return
+        
+        if self._requests_per_user:
+            users_data = users_data[0:self._requests_per_user-1]
+            random.shuffle(users_data)
 
         queue = asyncio.Queue()
         proxies = None
@@ -180,21 +189,46 @@ class StrategyWithoutProxy:
                         proxy,
                     )
 
-            api = APIRomania(debug=self._api._debug)
-            html = await api.make_registration(
-                user_data=user_data,
-                registration_date=self._registration_date,
-                tip_formular=self._tip_formular,
-                proxy=proxy,
-            )
-            await self.post_registrate(user_data=user_data, html=html, queue=queue)
-            await api._connections_pool.close()
+            api = APIRomania(debug=self._api._debug, verifi_ssl=False)
+            try:
+                html = await api.make_registration(
+                    user_data=user_data,
+                    registration_date=self._registration_date,
+                    tip_formular=self._tip_formular,
+                    proxy=proxy,
+                    timeout=10,
+                )
+                await self.post_registrate(user_data=user_data, html=html, queue=queue)
+                await api._connections_pool.close()
+            except Exception:
+                pass
 
-        tasks = [registrate(user_data=user_data) for user_data in users_data]
+        if self._requests_on_user_per_second:
+            tasks = [
+                asyncio.create_task(registrate(user_data=user_data))
+                for user_data in users_data
+                for _ in [user_data] * self._requests_on_user_per_second
+            ]
+        else:
+            tasks = [
+                asyncio.create_task(registrate(user_data=user_data))
+                for user_data in users_data
+            ]
         random.shuffle(tasks)
+
         results = []
-        for chunk in divide_list(tasks, divides=30):
-            results.extend(await asyncio.gather(*chunk, return_exceptions=True))
+
+        if self._requests_per_user:
+            results.extend(
+                await asyncio.gather(
+                    *tasks, return_exceptions=True
+                )
+            )
+            logger.info(f"{results}")
+        else:
+            for chunk in divide_list(tasks, divides=30):
+                results.extend(await asyncio.gather(*chunk, return_exceptions=True))
+                logger.info(f"{results}")
 
         await self._save_successfully_registration_from_queue(
             queue=queue, dirname=dirname
@@ -333,13 +367,13 @@ class StrategyWithoutProxy:
             except Exception as e:
                 if self._logging:
                     logger.exception(e)
-                    
+
     def _get_proxies_from_proxy_list(self) -> list[str] | list:
         if self._proxies_file_path:
             proxies = []
             with open(self._proxies_file_path) as f:
                 src_list_proxies = f.read().splitlines()
-                
+
             for proxy in src_list_proxies:
                 proxies_range = re.search(r"<(\d+-\d+)>", proxy)
                 if proxies_range:
@@ -352,9 +386,9 @@ class StrategyWithoutProxy:
                         ),
                         proxy,
                     )
-                    
+
                 proxies.append(proxy)
-                
+
             return proxies
         else:
             return []
@@ -379,11 +413,11 @@ class StrategyWithoutProxy:
                             month=reg_dt.month,
                             day=reg_dt.day,
                             year=reg_dt.year,
-                            proxy=p
+                            proxy=p,
                         )
                         for p in proxies
                     ],
-                    return_exceptions=True
+                    return_exceptions=True,
                 )
             except BaseException as e:
                 logger.exception(e)
@@ -468,7 +502,7 @@ class StrategyWithoutProxy:
         self, dirname: str, success_registrations: list
     ):
         try:
-            fn = f"successfully-registered.csv"
+            fn = "successfully-registered.csv"
             path = Path().joinpath(dirname, fn)
 
             with self._lock:
@@ -502,6 +536,9 @@ class StrategyWithoutProxy:
         while not queue.empty():
             user_data, html = await queue.get()
             successfully_registered.append(user_data)
+
+            if not self._api.is_success_registration(html):
+                continue
 
             first_name, last_name = (
                 user_data["Prenume Pasaport"],
@@ -639,7 +676,8 @@ async def main():
         proxies_file="proxies.txt",
         # stop_when=multiple_requests + timedelta(seconds=15)
     )
-    await strategy.start()
+    res = await strategy.get_unregisterer_users()
+    ...
 
 
 if __name__ == "__main__":

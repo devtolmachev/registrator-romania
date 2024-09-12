@@ -81,7 +81,9 @@ async def main_async(
             without_remote_database=without_remote_database,
             multiple_registration_on=multiple_requesting_on,
             multiple_registration_threads=multiple_requesting_threads,
-            proxies_file=proxy_file
+            proxies_file=proxy_file,
+            requests_on_user_per_second=5,
+            requests_per_user=40
         )
         logger.info("Start strategy of registrations")
         await strategy.start()

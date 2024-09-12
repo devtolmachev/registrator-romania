@@ -67,7 +67,7 @@ class StrategyWithoutProxy:
         proxies_file: str = None,
         only_multiple: bool = True,
         requests_per_user: int = None,
-        requests_on_user_per_second: int = None,
+        requests_on_user_per_second: int = 3,
     ) -> None:
         if not stop_when:
             stop_when = [9, 2]

@@ -151,12 +151,12 @@ class StrategyWithoutProxy:
 
     async def _start_multiple_registrator(self, dirname: str):
         users_data = self._users_data.copy()
-        
+
         if not users_data:
             return
-        
+
         if self._requests_per_user:
-            users_data = users_data[0:self._requests_per_user-1]
+            users_data = users_data[0 : self._requests_per_user - 1]
             random.shuffle(users_data)
 
         queue = asyncio.Queue()
@@ -219,11 +219,7 @@ class StrategyWithoutProxy:
         results = []
 
         if self._requests_per_user:
-            results.extend(
-                await asyncio.gather(
-                    *tasks, return_exceptions=True
-                )
-            )
+            results.extend(await asyncio.gather(*tasks, return_exceptions=True))
             logger.info(f"{results}")
         else:
             for chunk in divide_list(tasks, divides=30):
@@ -535,11 +531,11 @@ class StrategyWithoutProxy:
         successfully_registered = []
         while not queue.empty():
             user_data, html = await queue.get()
-            successfully_registered.append(user_data)
 
             if not self._api.is_success_registration(html):
                 continue
 
+            successfully_registered.append(user_data)
             first_name, last_name = (
                 user_data["Prenume Pasaport"],
                 user_data["Nume Pasaport"],

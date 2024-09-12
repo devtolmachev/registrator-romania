@@ -140,7 +140,7 @@ class UsersFile(ft.Container):
         self._input_text = ft.Ref[ft.TextField]()
 
         def random_users_change(e):
-            if not text_field.value or int(text_field.value) > 40:
+            if not text_field.value or int(text_field.value) > 200:
                 text_field.value = ""
                 self.page.update()
             else:

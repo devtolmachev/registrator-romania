@@ -200,8 +200,7 @@ class StrategyWithoutProxy:
                 )
                 await self.post_registrate(user_data=user_data, html=html, queue=queue)
                 await api._connections_pool.close()
-            except Exception as e:
-                logger.exception(e)
+            except Exception:
                 pass
 
         if self._requests_on_user_per_second:

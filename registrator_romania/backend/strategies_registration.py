@@ -287,7 +287,7 @@ class StrategyWithoutProxy:
                         addit_pr.start()
                         process.append(pr)
 
-                time.sleep(0.5)
+                time.sleep(1)
                 logger.debug(f"Process {pr.name} started")
 
             for pr in process:

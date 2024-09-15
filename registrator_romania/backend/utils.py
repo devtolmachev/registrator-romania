@@ -402,14 +402,14 @@ def get_rpc_times(log_content: str):
     return sorted(results, key=lambda x: x["time"])
 
 
-c = open("registrations_15.01.2025/debug.log").read()
-c = open("logs.log").read()
-c = open("/home/daniil/Downloads/Telegram Desktop/debug (16).log").read()
+# c = open("registrations_15.01.2025/debug.log").read()
+# c = open("logs.log").read()
+# c = open("/home/daniil/Downloads/Telegram Desktop/debug (12).log").read()
 
-times = get_success_regs_time_from_debug_log(c)
-times = get_requests_times_from_log(c)
-times = get_rpc_times(c)
-# times = [t for t in times if not t["endpoint"].count("status")]
+# times = get_success_regs_time_from_debug_log(c)
+# # times = get_requests_times_from_log(c)
+# times = get_rpc_times(c)
+# # times = [t for t in times if not t["endpoint"].count("status")]
 
-pprint(times)
-print(len(times))
+# pprint(times)
+# print(len(times))

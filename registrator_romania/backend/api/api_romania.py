@@ -387,11 +387,12 @@ class APIRomania:
         return dates
 
     def _current_info(self):
+        atask = asyncio.current_task()
         return (
             f"{datetime.now()} - "
-            f"[Process: {multiprocessing.current_process()}] "
-            f"[Thread: {threading.current_thread()}] "
-            f"[Task: {asyncio.current_task()}]"
+            f"[Process: {multiprocessing.current_process().name}] "
+            f"[Thread: {threading.current_thread().name}] "
+            f"[Task: '{atask.get_name()}': {atask.get_coro().__qualname__}]"
         )
 
     async def get_free_places_for_date(
@@ -476,6 +477,7 @@ class APIRomania:
             try:
                 url = self.MAIN_URL
                 name = f"{data["nume_pasaport"]} {data["prenume_pasaport"]}"
+                start = datetime.now()
                 logger.debug(
                     f"{self._current_info()} send request on {url}. "
                     f"proxy: {proxy}, name: {name}"
@@ -501,7 +503,7 @@ class APIRomania:
                 logger.debug(
                     f"{self._current_info()} get response from "
                     f"{url}. success: {success}, error: {error}, "
-                    f"proxy: {proxy}, name: {name}"
+                    f"proxy: {proxy}, name: {name}. request sent at {start}"
                 )
 
                 if self.is_success_registration(html):

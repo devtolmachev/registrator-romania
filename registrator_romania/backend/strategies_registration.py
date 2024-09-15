@@ -1,7 +1,13 @@
 import asyncio
+import copy
 from datetime import datetime, timedelta
 import functools
+import json
 import logging
+from multiprocessing import Process
+from multiprocessing.synchronize import Lock
+import multiprocessing
+from multiprocessing.managers import ListProxy
 import os
 from pprint import pprint
 from queue import Queue
@@ -17,9 +23,11 @@ import time
 from typing import Literal
 from zoneinfo import ZoneInfo
 import aiofiles
+import aiohttp
 from loguru import logger
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+import uvloop
 
 from registrator_romania.backend.api.api_romania import APIRomania
 from registrator_romania.backend.database.api import (
@@ -46,6 +54,20 @@ from registrator_romania.frontend.telegram_bot.alerting import (
 from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
 # ssl._create_default_https_context = ssl._create_unverified_context
+
+
+def run_multiple(
+    instance: "StrategyWithoutProxy", dirname: str, lst: ListProxy, lock: Lock
+):
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+    async def run_multiple_async():
+        res = await instance._start_multiple_registrator(dirname, lst, lock)
+        ...
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_multiple_async())
 
 
 class StrategyWithoutProxy:
@@ -149,7 +171,9 @@ class StrategyWithoutProxy:
                     logger.exception(e)
                 continue
 
-    async def _start_multiple_registrator(self, dirname: str):
+    async def _start_multiple_registrator(
+        self, dirname: str, lst: ListProxy, lock: Lock
+    ):
         users_data = self._users_data.copy()
 
         if not users_data:
@@ -190,6 +214,8 @@ class StrategyWithoutProxy:
                     )
 
             api = APIRomania(debug=self._api._debug, verifi_ssl=False)
+            if lst.count(user_data):
+                return
             try:
                 html = await api.make_registration(
                     user_data=user_data,
@@ -197,9 +223,16 @@ class StrategyWithoutProxy:
                     tip_formular=self._tip_formular,
                     proxy=proxy,
                     timeout=10,
+                    queue=queue,
                 )
-                await self.post_registrate(user_data=user_data, html=html, queue=queue)
+                if isinstance(html, str) and api.is_success_registration(html):
+                    # with lock:
+                    if user_data not in lst:
+                        lst.append(user_data)
+
                 await api._connections_pool.close()
+                # api._connections_pool = None
+                await self.post_registrate(user_data=user_data, html=html, queue=queue)
             except Exception:
                 pass
 
@@ -216,15 +249,12 @@ class StrategyWithoutProxy:
             ]
         random.shuffle(tasks)
 
-        results = []
-
-        if self._requests_per_user:
-            results.extend(await asyncio.gather(*tasks, return_exceptions=True))
-            logger.info(f"{results}")
-        else:
-            for chunk in divide_list(tasks, divides=30):
-                results.extend(await asyncio.gather(*chunk, return_exceptions=True))
-                logger.info(f"{results}")
+        timeout = 300
+        try:
+            async with asyncio.timeout(timeout):
+                await asyncio.gather(*tasks, return_exceptions=True)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
 
         await self._save_successfully_registration_from_queue(
             queue=queue, dirname=dirname
@@ -237,20 +267,50 @@ class StrategyWithoutProxy:
             loop.run_until_complete(self._start_multiple_registrator(dirname=dirname))
 
         def start_threads():
-            threads: list[Thread] = []
-            for _ in range(self._multiple_registration_threads):
-                th = Thread(target=run_in_thread)
-                th.start()
-                threads.append(th)
-                time.sleep(1)
-                logger.debug(f"Thread {th.name} started")
+            instance = copy.copy(self)
 
-            for th in threads:
-                th.join()
-                logger.debug(f"Thread {th.name} finished")
+            pr_manager = multiprocessing.Manager()
+            lst = pr_manager.list()
+            lck = pr_manager.Lock()
 
-            logger.debug("All threads finished")
+            process: list[Process] = []
+            for num in range(self._multiple_registration_threads):
+                pr = Process(target=run_multiple, args=(instance, dirname, lst, lck))
+                pr.start()
+                process.append(pr)
+
+                if num == 0:
+                    for _ in range(3):
+                        addit_pr = Process(
+                            target=run_multiple, args=(instance, dirname, lst, lck)
+                        )
+                        addit_pr.start()
+                        process.append(pr)
+
+                time.sleep(0.5)
+                logger.debug(f"Process {pr.name} started")
+
+            for pr in process:
+                pr.join()
+                logger.debug(f"Process {pr.name} finished")
+
+            logger.debug("All processes finished")
             scheduler.remove_job(job_id=job.id)
+
+            # threads: list[Thread] = []
+            # for _ in range(self._multiple_registration_threads):
+            #     th = Thread(target=run_in_thread)
+            #     th.start()
+            #     threads.append(th)
+            #     time.sleep(1)
+            #     logger.debug(f"Thread {th.name} started")
+
+            # for th in threads:
+            #     th.join()
+            #     logger.debug(f"Thread {th.name} finished")
+
+            # logger.debug("All threads finished")
+            # scheduler.remove_job(job_id=job.id)
 
         scheduler = BackgroundScheduler()
         job = scheduler.add_job(
@@ -402,19 +462,46 @@ class StrategyWithoutProxy:
             proxies = self._get_proxies_from_proxy_list()
 
             try:
-                places = await asyncio.gather(
-                    *[
-                        api.get_free_places_for_date(
+                success = False
+                proxies_iter = iter(proxies)
+
+                last_err = None
+                proxy = next(proxies_iter)
+                for i in range(5):
+                    i += 1
+
+                    logger.debug(
+                        f"try to get free places on {reg_dt.date()}. " f"attempt {i}/5"
+                    )
+
+                    try:
+                        places = await api.get_free_places_for_date(
                             tip_formular=self._tip_formular,
                             month=reg_dt.month,
                             day=reg_dt.day,
                             year=reg_dt.year,
-                            proxy=p,
+                            proxy=proxy,
                         )
-                        for p in proxies
-                    ],
-                    return_exceptions=True,
-                )
+                    except BaseException as e:
+                        last_err = e
+                        logger.debug(
+                            "error when try to get free places. "
+                            f"{e.__class__.__name__}: {e}"
+                        )
+
+                        try:
+                            proxy = next(proxies_iter)
+                        except:
+                            proxy = proxies[0]
+
+                        await asyncio.sleep(1)
+                    else:
+                        success = True
+                        break
+
+                if not success:
+                    raise last_err
+
             except BaseException as e:
                 logger.exception(e)
 
@@ -603,6 +690,37 @@ class StrategyWithoutProxy:
 
         return unregistered_users
 
+    async def get_registerer_users(self, days: int = 0):
+        api = self._api
+        users_data = self._users_data.copy()
+        start_date = self._registration_date - timedelta(days=days)
+        stop_date = self._registration_date
+
+        response = await api.see_registrations(
+            tip_formular=str(self._tip_formular),
+            data_programarii=[
+                start_date,
+                stop_date,
+            ],
+        )
+
+        registered_users = response["data"]
+        registered_names = [
+            (obj["nume_pasaport"].lower(), obj["prenume_pasaport"].lower())
+            for obj in registered_users
+        ]
+
+        registered_users = []
+        for user in users_data:
+            names = (
+                user["Nume Pasaport"].lower(),
+                user["Prenume Pasaport"].lower(),
+            )
+            if names in registered_names and user not in registered_users:
+                registered_users.append(user)
+
+        return registered_users
+
     async def add_users_to_db(self):
         if self._without_remote_database is True:
             return
@@ -645,9 +763,9 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 2
-    reg_date = datetime(year=2024, month=12, day=3)
-    logger.add("logs.log")
+    tip = 5
+    reg_date = datetime(year=2024, month=12, day=9)
+    logger.add("logs.log", level="DEBUG")
 
     data = generate_fake_users_data(40)
     # data = get_users_data_from_xslx("users.xlsx")
@@ -667,12 +785,14 @@ async def main():
         residental_proxy_url=None,
         async_requests_num=2,
         multiple_registration_on=multiple_requests,
-        multiple_registration_threads=10,
+        multiple_registration_threads=20,
         without_remote_database=True,
         proxies_file="proxies.txt",
-        # stop_when=multiple_requests + timedelta(seconds=15)
+        # stop_when=multiple_requests + timedelta(seconds=15),
+        requests_on_user_per_second=1,
     )
-    res = await strategy.get_unregisterer_users()
+    res = await strategy.start()
+    # print(res, len(res), len(data))
     ...
 
 

@@ -206,7 +206,7 @@ class UsersFile(ft.Container):
 
         self._users = users
         self._update_users_event(len(users))
-        self.content.text = file.name
+        self.content.controls[0].text = file.name
         self.page.update()
 
     def get_users_data(self):

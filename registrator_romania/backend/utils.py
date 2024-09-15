@@ -82,7 +82,7 @@ def prepare_users_data(users_data: list[dict]):
                 # Append to value last symbol while len(v) < 3
                 while len(str(v)) < 3:
                     v += v[-1]
-            
+
             # Replace values like `Doğum tarihi:09.09.1976`
             v = v.split(":")[-1].strip()
             # Change turkey letters on english letters
@@ -164,11 +164,11 @@ def get_users_data_from_docx():
 
 
 def get_users_data_from_csv(file_path: str = None):
-    if file_path:    
+    if file_path:
         df = pd.read_csv(file_path)
     else:
         df = pd.read_csv("users.csv")
-        
+
     users_data = df.to_dict("records")
     return prepare_users_data(users_data)
 
@@ -250,7 +250,7 @@ def get_users_data_from_xslx(path: str = None):
             assert row
             row = keys.copy()
         row = list(row)
-        
+
         if row and any(not isinstance(v, str) for v in row):
             for v in row:
                 if isinstance(v, datetime):
@@ -312,8 +312,8 @@ def generate_fake_users_data(n: int = 20):
 
     return [
         {
-            "Nume Pasaport": f"GURKA{random_string(2)}",
-            "Prenume Pasaport": f"KARAS{random_string(2)}",
+            "Nume Pasaport": f"ARNA{random_string(2)}",
+            "Prenume Pasaport": f"VALE{random_string(2)}",
             "Data nasterii": f"199{random.randint(0, 9)}-10-1{random.randint(0, 9)}",
             "Locul naşterii": f"ISTANBUL",
             "Prenume Mama": f"RECYE",
@@ -328,5 +328,88 @@ def generate_fake_users_data(n: int = 20):
 def filter_by_log_level(loglevels: list[str]):
     return lambda record: record["level"].name in loglevels
 
+
 def get_dt_moscow() -> datetime:
     return datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
+
+
+def get_success_regs_time_from_debug_log(content_log: str) -> list[datetime]:
+    lines = content_log.splitlines()
+
+    def find_first_request(task_id):
+        for line in lines:
+            if line.count("send request") and line.count(task_id):
+                time = re.search(r"^([^|]+) |", line).group(1)
+                dt = datetime.strptime(time, "%Y-%m-%d %H:%M:%S.%f")
+                return dt
+
+    data = []
+    for line in lines:
+        if line.count("success: True"):
+            task_id = re.search(r"Task.*('Task-\d+')", line).group(1)
+            time = find_first_request(task_id=task_id)
+            data.append(time)
+
+    return sorted(data)
+
+
+def get_requests_times_from_log(log_content: str):
+    lines = log_content.splitlines()
+    data = []
+
+    for line in lines:
+        if line.count("send request"):
+            endpoint = (
+                re.search(r"send request on (https{0,1}://[^ ]+).*proxy", line)
+                .group(1)
+                .rstrip(".")
+            )
+            strtime = re.search(r"^([^|]+) |", line).group(1)
+
+            obj = {
+                "time": datetime.strptime(strtime, "%Y-%m-%d %H:%M:%S.%f"),
+                "endpoint": endpoint,
+            }
+            data.append(obj)
+
+    return sorted(data, key=lambda x: x["time"])
+
+
+def get_rpc_times(log_content: str):
+    times = get_requests_times_from_log(log_content)
+    second = None
+    prev_time = None
+
+    results = []
+
+    obj = {}
+    for t in times:
+        endpoint = t["endpoint"]
+        if not obj.get(endpoint):
+            obj[endpoint] = 0
+
+        if second is None or (t["time"] - prev_time).seconds >= 1:
+            if second:
+                obj["time"] = str(prev_time)
+                results.append(obj)
+                obj = {endpoint: 0}
+
+            prev_time = t["time"]
+            second = prev_time.second
+
+        obj[endpoint] += 1
+
+    return sorted(results, key=lambda x: x["time"])
+
+
+c = open("registrations_15.01.2025/debug.log").read()
+c = open("logs.log").read()
+c = open("/home/daniil/Downloads/Telegram Desktop/debug (16).log").read()
+
+times = get_success_regs_time_from_debug_log(c)
+times = get_requests_times_from_log(c)
+times = get_rpc_times(c)
+# times = [t for t in times if not t["endpoint"].count("status")]
+
+pprint(times)
+print(len(times))

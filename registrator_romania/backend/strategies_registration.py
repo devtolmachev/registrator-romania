@@ -62,7 +62,8 @@ from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 def run_multiple(
     instance: "StrategyWithoutProxy", dirname: str, lst: ListProxy, lock: Lock
 ):
-    asyncio.set_event_loop_policy(floop.EventLoopPolicy())
+    if sys.platform not in ["win32", "cygwin"]:
+        asyncio.set_event_loop_policy(floop.EventLoopPolicy())
 
     async def run_multiple_async():
         res = await instance._start_multiple_registrator(dirname, lst, lock)

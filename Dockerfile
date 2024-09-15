@@ -9,5 +9,7 @@ RUN poetry config virtualenvs.create false
 RUN poetry install --no-root --no-interaction --no-ansi
 
 COPY . /app
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
-ENTRYPOINT [ "python", "registrator_romania/api_romania.py" ]
+ENTRYPOINT [ "python", "-m", "registrator_romania" ]

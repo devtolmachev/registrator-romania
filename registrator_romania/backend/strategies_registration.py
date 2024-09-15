@@ -27,7 +27,10 @@ import aiohttp
 from loguru import logger
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
-import uvloop
+try:
+    import uvloop as floop
+except ImportError:
+    import winloop as floop
 
 from registrator_romania.backend.api.api_romania import APIRomania
 from registrator_romania.backend.database.api import (
@@ -59,7 +62,7 @@ from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 def run_multiple(
     instance: "StrategyWithoutProxy", dirname: str, lst: ListProxy, lock: Lock
 ):
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    asyncio.set_event_loop_policy(floop.EventLoopPolicy())
 
     async def run_multiple_async():
         res = await instance._start_multiple_registrator(dirname, lst, lock)

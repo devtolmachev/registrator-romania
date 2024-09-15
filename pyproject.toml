@@ -39,6 +39,8 @@ scandir = "^1.10.0"
 faker = "^26.0.0"
 httpx = "^0.27.0"
 flet = "^0.24.1"
+uvloop = { version = "^0.20.0", markers = "platform_system != 'Windows'" }
+winloop = { version = "^0.1.6", markers = "platform_system == 'Windows'" }
 
 
 [build-system]

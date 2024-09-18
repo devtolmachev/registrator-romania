@@ -77,6 +77,7 @@ def prepare_users_data(users_data: list[dict]):
     objs = []
     for us_data in users_data:
         obj = {}
+        values = list(us_data.values())
         for k, v in us_data.items():
             if len(str(v)) < 3:
                 # Append to value last symbol while len(v) < 3
@@ -97,7 +98,11 @@ def prepare_users_data(users_data: list[dict]):
                 # We need to format date like `1976-09-09`
                 v = dt.strftime("%Y-%m-%d")
                 assert datetime.strptime(v, "%Y-%m-%d")
-
+                
+            if v == values[-1] and k is None:
+                k = "registration_date"
+                v = dateutil.parser.parse(v, dayfirst=False)
+                
             obj[k] = v
 
         # Tranform case
@@ -335,19 +340,12 @@ def get_dt_moscow() -> datetime:
 
 def get_success_regs_time_from_debug_log(content_log: str) -> list[datetime]:
     lines = content_log.splitlines()
-
-    def find_first_request(task_id):
-        for line in lines:
-            if line.count("send request") and line.count(task_id):
-                time = re.search(r"^([^|]+) |", line).group(1)
-                dt = datetime.strptime(time, "%Y-%m-%d %H:%M:%S.%f")
-                return dt
-
+    
     data = []
     for line in lines:
         if line.count("success: True"):
-            task_id = re.search(r"Task.*('Task-\d+')", line).group(1)
-            time = find_first_request(task_id=task_id)
+            strtime = re.search(r"request sent at ([\d\s\.:-]+)", line).group(1)
+            time = datetime.strptime(strtime, "%Y-%m-%d %H:%M:%S.%f")
             data.append(time)
 
     return sorted(data)
@@ -402,14 +400,18 @@ def get_rpc_times(log_content: str):
     return sorted(results, key=lambda x: x["time"])
 
 
-# c = open("registrations_15.01.2025/debug.log").read()
+# df = pd.DataFrame(generate_fake_users_data(20))
+# df.to_excel("users.xlsx", index=False)
+# pprint(get_users_data_from_xslx('users.xlsx'))
+# exit()
 # c = open("logs.log").read()
-# c = open("/home/daniil/Downloads/Telegram Desktop/debug (12).log").read()
+# c = open("registrations_16.01.2025/debug.log").read()
+# c = open("/home/daniil/Downloads/Telegram Desktop/debug (17).log").read()
 
 # times = get_success_regs_time_from_debug_log(c)
-# # times = get_requests_times_from_log(c)
+# times = get_requests_times_from_log(c)
 # times = get_rpc_times(c)
-# # times = [t for t in times if not t["endpoint"].count("status")]
+# times = [t for t in times if not t["endpoint"].count("status")]
 
 # pprint(times)
 # print(len(times))

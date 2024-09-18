@@ -27,6 +27,7 @@ import aiohttp
 from loguru import logger
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+
 try:
     import uvloop as floop
 except ImportError:
@@ -91,7 +92,7 @@ class StrategyWithoutProxy:
         multiple_registration_threads: int = 7,
         without_remote_database: bool = False,
         proxies_file: str = None,
-        only_multiple: bool = True,
+        only_multiple: bool = False,
         requests_per_user: int = None,
         requests_on_user_per_second: int = 3,
     ) -> None:
@@ -155,17 +156,49 @@ class StrategyWithoutProxy:
     async def async_registrations(self, users_data: list[dict], queue: asyncio.Queue):
         api = self._api
         reg_dt = self._registration_date
-        proxy = self._residental_proxy_url
+
+        proxies = None
+        if self._proxies_file_path:
+            with open(self._proxies_file_path) as f:
+                src_list_proxies = f.read().splitlines()
+                proxies = iter(src_list_proxies)
 
         async def registrate(user_data: dict):
+            nonlocal proxies, reg_dt
+            proxy = None
+            if proxies:
+                try:
+                    proxy = next(proxies)
+                except StopIteration:
+                    proxies = iter(src_list_proxies)
+                    proxy = src_list_proxies[0]
+
+                proxies_range = re.search(r"<(\d+-\d+)>", proxy)
+                if proxies_range:
+                    proxies_range = proxies_range.group(1)
+                    start_port, stop_port = proxies_range.split("-")
+                    proxy = re.sub(
+                        r"<\d+-\d+>",
+                        str(
+                            random.randrange(start=int(start_port), stop=int(stop_port))
+                        ),
+                        proxy,
+                    )
+            
+            if user_data.get("registration_date"):
+                reg_dt = user_data.pop("registration_date")
+            
+            api = APIRomania(debug=self._api._debug, verifi_ssl=False)
             html = await api.make_registration(
                 user_data=user_data,
                 registration_date=reg_dt,
                 tip_formular=self._tip_formular,
                 proxy=proxy,
+                timeout=10,
             )
             await self.post_registrate(user_data=user_data, html=html, queue=queue)
-
+            await api._connections_pool.close()
+            
         tasks = [registrate(user_data) for user_data in users_data]
         for chunk in divide_list(tasks, divides=self._async_requests_num):
             try:
@@ -535,19 +568,19 @@ class StrategyWithoutProxy:
                 continue
 
             try:
-                try:
-                    async with asyncio.timeout(5):
-                        places = await api.get_free_places_for_date(
-                            tip_formular=self._tip_formular,
-                            month=reg_dt.month,
-                            day=reg_dt.day,
-                            year=reg_dt.year,
-                        )
-                        if not places:
-                            logger.debug(f"{places} places")
-                            continue
-                except asyncio.TimeoutError:
-                    pass
+                # try:
+                #     async with asyncio.timeout(5):
+                #         places = await api.get_free_places_for_date(
+                #             tip_formular=self._tip_formular,
+                #             month=reg_dt.month,
+                #             day=reg_dt.day,
+                #             year=reg_dt.year,
+                #         )
+                #         if not places:
+                #             logger.debug(f"{places} places")
+                #             continue
+                # except asyncio.TimeoutError:
+                #     pass
 
                 users_for_registrate = [
                     u
@@ -623,7 +656,7 @@ class StrategyWithoutProxy:
         while not queue.empty():
             user_data, html = await queue.get()
 
-            if not self._api.is_success_registration(html):
+            if not self._api.is_success_registration(html) or user_data in successfully_registered:
                 continue
 
             successfully_registered.append(user_data)
@@ -767,12 +800,13 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
-    tip = 5
-    reg_date = datetime(year=2024, month=12, day=9)
+    tip = 2
+    reg_date = datetime(year=2025, month=1, day=16)
     logger.add("logs.log", level="DEBUG")
 
-    data = generate_fake_users_data(40)
-    # data = get_users_data_from_xslx("users.xlsx")
+    # data = generate_fake_users_data(40)
+    data = get_users_data_from_xslx("users.xlsx")
+    # data = get_users_data_from_xslx("/home/daniil/Downloads/Telegram Desktop/users (3).xlsx")
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
 
@@ -784,11 +818,11 @@ async def main():
         registration_date=reg_date,
         tip_formular=tip,
         users_data=data,
-        mode="sync",
+        mode="async",
         # residental_proxy_url="http://brd-customer-hl_24f51215-zone-residential_proxy1:s2qqflcv6l2o@brd.superproxy.io:22225",
         residental_proxy_url=None,
-        async_requests_num=2,
-        multiple_registration_on=multiple_requests,
+        async_requests_num=200,
+        # multiple_registration_on=multiple_requests,
         multiple_registration_threads=20,
         without_remote_database=True,
         proxies_file="proxies.txt",

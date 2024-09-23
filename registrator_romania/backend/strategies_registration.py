@@ -1,20 +1,15 @@
 import asyncio
 import copy
 from datetime import datetime, timedelta
-import functools
-import json
+import inspect
 import logging
 from multiprocessing import Process
 from multiprocessing.synchronize import Lock
 import multiprocessing
 from multiprocessing.managers import ListProxy
 import os
-from pprint import pprint
-from queue import Queue
 import re
-import ssl
 from pathlib import Path
-import platform
 import random
 import sys
 from threading import Thread
@@ -27,6 +22,7 @@ import aiohttp
 from loguru import logger
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+
 try:
     import uvloop as floop
 except ImportError:
@@ -49,6 +45,7 @@ from registrator_romania.backend.utils import (
     filter_by_log_level,
     generate_fake_users_data,
     get_users_data_from_xslx,
+    setup_loggers,
 )
 from registrator_romania.backend.utils import get_dt_moscow
 from registrator_romania.frontend.telegram_bot.alerting import (
@@ -60,14 +57,20 @@ from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
 
 def run_multiple(
-    instance: "StrategyWithoutProxy", dirname: str, lst: ListProxy, lock: Lock
+    instance: "StrategyWithoutProxy",
+    dirname: str,
+    lst: ListProxy,
+    locks: dict[str, Lock],
+    waiters: ListProxy,
+    q: multiprocessing.Queue
 ):
     if sys.platform not in ["win32", "cygwin"]:
         asyncio.set_event_loop_policy(floop.EventLoopPolicy())
 
     async def run_multiple_async():
-        res = await instance._start_multiple_registrator(dirname, lst, lock)
+        res = await instance._start_multiple_registrator(dirname, lst, locks, waiters, q)
         ...
+        return res
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -93,8 +96,10 @@ class StrategyWithoutProxy:
         proxies_file: str = None,
         only_multiple: bool = True,
         requests_per_user: int = None,
-        requests_on_user_per_second: int = 3,
+        requests_on_user_per_second: int = 1,
     ) -> None:
+        setup_loggers(registration_date=registration_date)
+
         if not stop_when:
             stop_when = [9, 2]
         self._api = APIRomania(debug=debug)
@@ -119,6 +124,8 @@ class StrategyWithoutProxy:
 
         self._proxies_file_path = proxies_file
         self._only_multiple = only_multiple
+
+        self._g_recaptcha_responses = []
 
     async def start(self):
         if self._users_data:
@@ -158,6 +165,12 @@ class StrategyWithoutProxy:
         proxy = self._residental_proxy_url
 
         async def registrate(user_data: dict):
+            proxy = self.get_proxy()
+
+            if user_data.get("registration_date"):
+                reg_dt = user_data.pop("registration_date")
+
+            api = APIRomania(debug=self._api._debug, verifi_ssl=False)
             html = await api.make_registration(
                 user_data=user_data,
                 registration_date=reg_dt,
@@ -165,6 +178,8 @@ class StrategyWithoutProxy:
                 proxy=proxy,
             )
             await self.post_registrate(user_data=user_data, html=html, queue=queue)
+
+            await api._connections_pool.close()
 
         tasks = [registrate(user_data) for user_data in users_data]
         for chunk in divide_list(tasks, divides=self._async_requests_num):
@@ -175,8 +190,31 @@ class StrategyWithoutProxy:
                     logger.exception(e)
                 continue
 
+    def get_proxy(self):
+        with open(self._proxies_file_path) as f:
+            src_list_proxies = f.read().splitlines()
+            proxies = iter(src_list_proxies)
+
+        try:
+            proxy = next(proxies)
+        except StopIteration:
+            proxies = iter(src_list_proxies)
+            proxy = src_list_proxies[0]
+
+        proxies_range = re.search(r"<(\d+-\d+)>", proxy)
+        if proxies_range:
+            proxies_range = proxies_range.group(1)
+            start_port, stop_port = proxies_range.split("-")
+            proxy = re.sub(
+                r"<\d+-\d+>",
+                str(random.randrange(start=int(start_port), stop=int(stop_port))),
+                proxy,
+            )
+
+        return proxy
+
     async def _start_multiple_registrator(
-        self, dirname: str, lst: ListProxy, lock: Lock
+        self, dirname: str, lst: ListProxy, locks: dict[str, Lock], process_waiters: ListProxy, q: multiprocessing.Queue
     ):
         users_data = self._users_data.copy()
 
@@ -188,39 +226,92 @@ class StrategyWithoutProxy:
             random.shuffle(users_data)
 
         queue = asyncio.Queue()
-        proxies = None
-        if self._proxies_file_path:
-            with open(self._proxies_file_path) as f:
-                src_list_proxies = f.read().splitlines()
-                proxies = iter(src_list_proxies)
+        temp_q = asyncio.Queue()
 
         async def registrate(user_data: dict):
-            nonlocal queue, proxies
+            nonlocal registered_users, temp_q, queue
 
-            proxy = None
-            if proxies:
-                try:
-                    proxy = next(proxies)
-                except StopIteration:
-                    proxies = iter(src_list_proxies)
-                    proxy = src_list_proxies[0]
-
-                proxies_range = re.search(r"<(\d+-\d+)>", proxy)
-                if proxies_range:
-                    proxies_range = proxies_range.group(1)
-                    start_port, stop_port = proxies_range.split("-")
-                    proxy = re.sub(
-                        r"<\d+-\d+>",
-                        str(
-                            random.randrange(start=int(start_port), stop=int(stop_port))
-                        ),
-                        proxy,
-                    )
+            try:
+                proxy = await asyncio.to_thread(self.get_proxy)
+            except Exception:
+                proxy = None
 
             api = APIRomania(debug=self._api._debug, verifi_ssl=False)
-            if lst.count(user_data):
+            if user_data in lst:
+                
                 return
+
+            async def wait_for_registration(queue: asyncio.Queue, user_id: str):
+                try:
+                    logger.debug(f"wait for registration for user_id: {user_id} (wait queue)")
+                    async with asyncio.timeout(60):
+                        while True:
+                            if inspect.iscoroutinefunction(queue.get):
+                                us_id = await queue.get()
+                            else:
+                                us_id = await asyncio.to_thread(queue.get)
+                                
+                            if us_id == user_id:
+                                logger.debug(f"wait for registration for user_id: {user_id} (wait queue) - done")
+                                return
+                except asyncio.TimeoutError:
+                    return
+
+            curr_task = api._current_info()
+            user_id = self._get_user_id(user_data)
+            lock = locks[user_id]
+
             try:
+                # process data synchronization
+                async with asyncio.timeout(10):
+                    await asyncio.to_thread(lock.acquire)
+                    
+                try:
+                    if process_waiters.count(user_id) >= 2:
+                        logger.debug(
+                            f"process lock. curr_task: {curr_task}. user_id: {user_id}. wait for another task finish attempt"
+                        )
+                        await wait_for_registration(q, user_id)
+
+                    if user_id in registered_users or user_data in lst:
+                        logger.debug(
+                            f"process lock. curr_task: {curr_task}. user_id: {user_id}. already registered"
+                        )
+                        return
+
+                    logger.debug(
+                        f"process lock. curr_task: {curr_task}. user_id: {user_id}. try to registrate"
+                    )
+                    process_waiters.append(user_id)
+                finally:
+                    async with asyncio.timeout(10):
+                        try:
+                            logger.debug(f"release lock for user_id: {user_id}")
+                            await asyncio.to_thread(lock.release)
+                        except ValueError:
+                            pass
+
+                g_recaptcha_response = None
+                try:
+                    g_recaptcha_response = random.choice(self._g_recaptcha_responses)
+                    try:
+                        self._g_recaptcha_responses.remove(g_recaptcha_response)
+                    except ValueError:
+                        pass
+                    if not g_recaptcha_response:
+                        g_recaptcha_response = None
+                except Exception:
+                    pass
+                
+                if user_data in lst:
+                    logger.debug(f"user_data in lst: {user_data}, make return")
+                    try:
+                        process_waiters.remove(user_id)
+                    except Exception:
+                        pass
+                    return
+                
+                logger.debug(f"make registration for user_id: {user_id}")
                 html = await api.make_registration(
                     user_data=user_data,
                     registration_date=self._registration_date,
@@ -228,17 +319,49 @@ class StrategyWithoutProxy:
                     proxy=proxy,
                     timeout=10,
                     queue=queue,
+                    g_recaptcha_response=g_recaptcha_response,
                 )
-                if isinstance(html, str) and api.is_success_registration(html):
-                    # with lock:
+
+                if not isinstance(html, str):
+                    return
+
+                elif api.is_success_registration(html):
+                    registered_users.add(user_id)
                     if user_data not in lst:
                         lst.append(user_data)
 
+                elif api.get_error_registration_as_text(html):
+                    error = api.get_error_registration_as_text(html)
+                    if error.count("Deja a fost înregistrată o programare") and user_data not in lst:
+                        lst.append(user_data)
+
                 await api._connections_pool.close()
-                # api._connections_pool = None
                 await self.post_registrate(user_data=user_data, html=html, queue=queue)
-            except Exception:
-                pass
+                
+            except AIOHTTP_NET_ERRORS as e:
+                logger.debug(f"AIOHTTP_NET_ERRORS: {e}")
+                return
+            
+            except Exception as e:
+                logger.exception(e)
+                
+            finally:
+                if user_id in process_waiters:
+                    try:
+                        process_waiters.remove(user_id)
+                    except Exception:
+                        pass
+                
+                try:
+                    async with asyncio.timeout(3):
+                        await asyncio.to_thread(q.put_nowait, user_id)
+                except Exception:
+                    pass
+                
+                try:
+                    lock.release()
+                except ValueError:
+                    pass
 
         if self._requests_on_user_per_second:
             tasks = [
@@ -252,8 +375,9 @@ class StrategyWithoutProxy:
                 for user_data in users_data
             ]
         random.shuffle(tasks)
+        registered_users = set()
 
-        timeout = 300
+        timeout = 60
         try:
             async with asyncio.timeout(timeout):
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -263,6 +387,9 @@ class StrategyWithoutProxy:
         await self._save_successfully_registration_from_queue(
             queue=queue, dirname=dirname
         )
+        
+    def _get_user_id(self, user_data: dict) -> str:
+        return f"{user_data['Nume Pasaport']} {user_data['Prenume Pasaport']} {user_data['Adresa de email']}"
 
     async def schedule_multiple_registrations(self, dirname: str):
         def run_in_thread():
@@ -275,21 +402,27 @@ class StrategyWithoutProxy:
 
             pr_manager = multiprocessing.Manager()
             lst = pr_manager.list()
-            lck = pr_manager.Lock()
+            locks = {}
+            waiters_list = pr_manager.list()
+            q = multiprocessing.Queue()
+            
+            for us_data in self._users_data:
+                locks[self._get_user_id(us_data)] = multiprocessing.Lock()
 
             process: list[Process] = []
             for num in range(self._multiple_registration_threads):
-                pr = Process(target=run_multiple, args=(instance, dirname, lst, lck))
+                pr_args = (instance, dirname, lst, locks, waiters_list, q)
+                pr = Process(target=run_multiple, args=pr_args)
                 pr.start()
                 process.append(pr)
 
                 if num == 0:
-                    for _ in range(3):
-                        addit_pr = Process(
-                            target=run_multiple, args=(instance, dirname, lst, lck)
-                        )
+                    for _ in range(5):
+                        addit_pr = Process(target=run_multiple, args=pr_args)
+                        time.sleep(random.uniform(0.04, 0.1))
                         addit_pr.start()
-                        process.append(pr)
+                        process.append(addit_pr)
+                        logger.debug(f"Process {addit_pr.name} started")
 
                 time.sleep(1)
                 logger.debug(f"Process {pr.name} started")
@@ -516,10 +649,58 @@ class StrategyWithoutProxy:
                 if self._logging:
                     logger.exception(e)
 
+        async def append_g_recaptcha_response():
+            tasks = []
+
+            async def append():
+                await asyncio.sleep(random.uniform(0.5, 2))
+                try:
+                    proxy = await asyncio.to_thread(self.get_proxy)
+                except Exception:
+                    proxy = None
+
+                retry = False
+                try:
+                    g_recaptcha_response = await self._api.get_recaptcha_token(
+                        proxy=proxy, timeout=10
+                    )
+                except Exception:
+                    retry = True
+
+                if retry or not g_recaptcha_response:
+                    try:
+                        g_recaptcha_response = await self._api.get_captcha_token(
+                            proxy=proxy, timeout=10
+                        )
+                    except Exception:
+                        g_recaptcha_response = None
+
+                if g_recaptcha_response:
+                    self._g_recaptcha_responses.append(g_recaptcha_response)
+
+            while True:
+                if len(tasks) >= 50:
+                    try:
+                        async with asyncio.timeout(10):
+                            res = await asyncio.gather(*tasks, return_exceptions=True)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        pass
+                    tasks = []
+                    await asyncio.sleep(1)
+
+                tasks.append(append())
+
+        if self._multiple_registration_on:
+            loop = asyncio.get_running_loop()
+            asyncio.eager_task_factory(loop=loop, coro=append_g_recaptcha_response())
+
         while True:
             logger.debug("Start cycle")
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
+            logger.debug(
+                f"g recaptcha responses items collected: {len(self._g_recaptcha_responses)}"
+            )
             users_for_registrate = self._users_data.copy()
 
             if (
@@ -623,7 +804,10 @@ class StrategyWithoutProxy:
         while not queue.empty():
             user_data, html = await queue.get()
 
-            if not self._api.is_success_registration(html):
+            if (
+                not self._api.is_success_registration(html)
+                or user_data in successfully_registered
+            ):
                 continue
 
             successfully_registered.append(user_data)
@@ -767,19 +951,29 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 
 async def main():
+    # ISAI - 2
     tip = 5
     reg_date = datetime(year=2024, month=12, day=9)
+    tip = 4
     logger.add("logs.log", level="DEBUG")
 
     data = generate_fake_users_data(40)
+
+    tip = 2
+    data = get_users_data_from_xslx("users.xlsx")
+
+    data = generate_fake_users_data(10)
+    reg_date = datetime(year=2024, month=12, day=24)
+
     # data = get_users_data_from_xslx("users.xlsx")
+    # data = get_users_data_from_xslx("/home/daniil/Downloads/Telegram Desktop/users (3).xlsx")
     # async with UsersService() as service:
     #     data = await service.get_users_by_reg_date(reg_date)
 
     # if not await database_prepared_correctly(reg_date, data):
     #     await prepare_database(reg_date, data)
 
-    multiple_requests = datetime.now()
+    multiple_requests = datetime.now() - timedelta(seconds=3)
     strategy = StrategyWithoutProxy(
         registration_date=reg_date,
         tip_formular=tip,
@@ -789,13 +983,14 @@ async def main():
         residental_proxy_url=None,
         async_requests_num=2,
         multiple_registration_on=multiple_requests,
-        multiple_registration_threads=20,
+        multiple_registration_threads=5,
         without_remote_database=True,
         proxies_file="proxies.txt",
         # stop_when=multiple_requests + timedelta(seconds=15),
         requests_on_user_per_second=1,
     )
     res = await strategy.start()
+    # res = await strategy.get_registerer_users(1)
     # print(res, len(res), len(data))
     ...
 

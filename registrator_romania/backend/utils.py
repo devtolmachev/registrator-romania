@@ -1,11 +1,12 @@
 from datetime import datetime
+from functools import partial
 from pathlib import Path
-from pprint import pprint
 import random
 import re
 import string
 import sys
 from zoneinfo import ZoneInfo
+import aiofiles
 import dateutil
 from docx import Document
 import gspread_asyncio
@@ -19,6 +20,10 @@ from registrator_romania.shared import get_config
 
 def divide_list(src_list: list, divides: int = 100):
     return [src_list[x : x + divides] for x in range(0, len(src_list), divides)]
+
+
+def filter_by_log_level(loglevels: list[str]):
+    return lambda record: record["level"].name in loglevels
 
 
 def get_creds() -> Credentials:
@@ -173,26 +178,44 @@ def get_users_data_from_csv(file_path: str = None):
     return prepare_users_data(users_data)
 
 
+async def async_log_message(message: str, path: Path = None):
+    if path:
+        async with aiofiles.open(path, mode="a", encoding="utf-8") as f:
+            await f.write(message)
+
 def setup_loggers(registration_date: datetime, save_logs: bool = True):
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
+    Path(dirpath).mkdir(parents=True, exist_ok=True)
 
     if save_logs:
         logger.remove()
         logger.add(
             sys.stderr,
             filter=filter_by_log_level(loglevels=["INFO", "SUCCESS", "ERROR"]),
+            enqueue=True,
+            backtrace=True,
+            diagnose=True,
         )
         logger.add(
-            Path().joinpath(dirpath, "errors.log"),
+            partial(async_log_message, path=Path().joinpath(dirpath, "errors.log")),
             filter=filter_by_log_level(loglevels=["ERROR"]),
+            enqueue=True,
+            backtrace=True,
+            diagnose=True,
         )
         logger.add(
-            Path().joinpath(dirpath, "debug.log"),
+            partial(async_log_message, path=Path().joinpath(dirpath, "debug.log")),
             filter=filter_by_log_level(loglevels=["DEBUG"]),
+            enqueue=True,
+            backtrace=True,
+            diagnose=True,
         )
         logger.add(
-            Path().joinpath(dirpath, "success.log"),
+            partial(async_log_message, path=Path().joinpath(dirpath, "success.log")),
             filter=filter_by_log_level(loglevels=["SUCCESS"]),
+            enqueue=True,
+            backtrace=True,
+            diagnose=True,
         )
 
 
@@ -315,19 +338,14 @@ def generate_fake_users_data(n: int = 20):
             "Nume Pasaport": f"ARNA{random_string(2)}",
             "Prenume Pasaport": f"VALE{random_string(2)}",
             "Data nasterii": f"199{random.randint(0, 9)}-10-1{random.randint(0, 9)}",
-            "Locul naşterii": f"ISTANBUL",
-            "Prenume Mama": f"RECYE",
+            "Locul naşterii": "ISTANBUL",
+            "Prenume Mama": "RECYE",
             "Prenume Tata": "SABRI",
             "Adresa de email": f"{random_string(7)}@gmail.com",
             "Serie și număr Pașaport": f"U{random.randint(10_000_000, 10_999_999)}",
         }
         for _ in range(n)
     ]
-
-
-def filter_by_log_level(loglevels: list[str]):
-    return lambda record: record["level"].name in loglevels
-
 
 def get_dt_moscow() -> datetime:
     return datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
@@ -344,13 +362,16 @@ def get_success_regs_time_from_debug_log(content_log: str) -> list[datetime]:
                 return dt
 
     data = []
+    uniq = []
     for line in lines:
         if line.count("success: True"):
             task_id = re.search(r"Task.*('Task-\d+')", line).group(1)
             time = find_first_request(task_id=task_id)
             data.append(time)
+            if time not in uniq:
+                uniq.append(time)
 
-    return sorted(data)
+    return {"all": sorted(data), "uniq": sorted(uniq)}
 
 
 def get_requests_times_from_log(log_content: str):
@@ -402,14 +423,20 @@ def get_rpc_times(log_content: str):
     return sorted(results, key=lambda x: x["time"])
 
 
-# c = open("registrations_15.01.2025/debug.log").read()
-# c = open("logs.log").read()
-# c = open("/home/daniil/Downloads/Telegram Desktop/debug (12).log").read()
+# from pprint import pprint
+
+# c = open("registrations_24.12.2024/debug.log").read()
+# # c = open("logs.log").read()
+# # c = open("/home/daniil/Downloads/Telegram Desktop/debug (22).log").read()
 
 # times = get_success_regs_time_from_debug_log(c)
-# # times = get_requests_times_from_log(c)
-# times = get_rpc_times(c)
-# # times = [t for t in times if not t["endpoint"].count("status")]
+# all_req = get_requests_times_from_log(c)
+# # times = get_rpc_times(c)
 
-# pprint(times)
+# # pprint(times)
+# pprint(times["uniq"])
+# pprint(len(all_req))
+# print(f"{len(times['uniq'])}/{len(times['all'])}")
+# a = 'uniq'
+# print((times[a][-1] - times[a][0]).total_seconds())
 # print(len(times))

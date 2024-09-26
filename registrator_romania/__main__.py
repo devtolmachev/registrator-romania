@@ -301,7 +301,7 @@ def run_as_processes(process_count: int, params: dict):
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
-        "proxy_file": proxy_file
+        "proxy_file": proxy_file if proxy_file else None
     }
 
     processes: list[Process] = []
@@ -319,10 +319,10 @@ def run_as_processes(process_count: int, params: dict):
 
 
 @click.command()
-@click.option("--mode", default="sync", help=HELP_MODE_OPTION)
-@click.option("--containers", default=5, help=HELP_CONTAINERS)
-@click.option("--async_requests_num", default=10, help=HELP_ASYNC_REQUESTS_NUM)
-@click.option("--use_shuffle", default="yes", help=HELP_USE_SHUFFLE)
+# @click.option("--mode", default="sync", help=HELP_MODE_OPTION)
+# @click.option("--containers", default=5, help=HELP_CONTAINERS)
+# @click.option("--async_requests_num", default=10, help=HELP_ASYNC_REQUESTS_NUM)
+# @click.option("--use_shuffle", default="yes", help=HELP_USE_SHUFFLE)
 @click.option("--stop_time", default="09:02", help=HELP_STOP_WHEN)
 @click.option("--start_time", default="07:30", help=HELP_START_TIME)
 @click.option(
@@ -330,26 +330,26 @@ def run_as_processes(process_count: int, params: dict):
     default=str(registration_date),
     help=HELP_REGISTRATION_DATE,
 )
-@click.option("--save_logs", default="yes", help=HELP_SAVE_LOGS)
+# @click.option("--save_logs", default="yes", help=HELP_SAVE_LOGS)
 @click.option("--users_file", help=HELP_USERS_FILE)
 @click.option("--tip_formular", help=HELP_TIP_FORMULAR)
-@click.option("--processes", default="no", help=HELP_PROCESSES)
-@click.option(
-    "--proxy_provider_url",
-    required=True,
-    default="",
-    help=HELP_PROXY_PROVIDER_URL,
-)
+# @click.option("--processes", default="no", help=HELP_PROCESSES)
+# @click.option(
+#     "--proxy_provider_url",
+#     required=True,
+#     default="",
+#     help=HELP_PROXY_PROVIDER_URL,
+# )
 @click.option(
     "--fake_users",
     default="no",
     help=HELP_FAKE_USERS,
 )
-@click.option(
-    "--without_remote_database",
-    default="no",
-    help=HELP_WITHOUT_REMOTE_DATABASE,
-)
+# @click.option(
+#     "--without_remote_database",
+#     default="no",
+#     help=HELP_WITHOUT_REMOTE_DATABASE,
+# )
 @click.option(
     "--multiple_requesting_on",
     default="no",
@@ -357,7 +357,7 @@ def run_as_processes(process_count: int, params: dict):
 )
 @click.option(
     "--multiple_requesting_threads",
-    default=7,
+    default=15,
     help=HELP_MULTIPLE_REQUESTING_THREADS,
 )
 @click.option(
@@ -366,23 +366,23 @@ def run_as_processes(process_count: int, params: dict):
     help=HELP_PROXY_FILE,
 )
 def main(
-    mode: str,
-    containers: int,
-    async_requests_num: int,
-    use_shuffle: str,
     stop_time: str,
     start_time: str,
     registration_date: str,
-    save_logs: str,
     users_file: str,
     tip_formular: int,
-    proxy_provider_url: str,
-    processes: str,
     fake_users: str,
-    without_remote_database: str,
     multiple_requesting_on: str,
     multiple_requesting_threads: int,
-    proxy_file: str
+    proxy_file: str,
+    without_remote_database: str = "yes",
+    mode: str = "sync",
+    proxy_provider_url: str = "",
+    processes: str = "yes",
+    save_logs: str = "yes",
+    containers: int = 1,
+    async_requests_num: int = 20,
+    use_shuffle: str = "yes"
 ):
     assert str(
         tip_formular
@@ -431,7 +431,7 @@ def main(
     else:
         users_data = generate_fake_users_data(n=int(fake_users))
         
-    assert os.path.isfile(proxy_file), "Вы передали неправильный путь до файла с проксями"
+    assert not proxy_file or os.path.isfile(proxy_file), "Вы передали неправильный путь до файла с проксями"
 
     env = {
         "proxy_provider_url": proxy_provider_url,

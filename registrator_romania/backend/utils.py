@@ -1,5 +1,8 @@
 from datetime import datetime
 from functools import partial
+import asyncio
+import multiprocessing
+import threading
 from pathlib import Path
 import random
 import re
@@ -423,9 +426,19 @@ def get_rpc_times(log_content: str):
     return sorted(results, key=lambda x: x["time"])
 
 
-# from pprint import pprint
+def get_current_info():
+    atask = asyncio.current_task()
+    return (
+        f"{datetime.now()} - "
+        f"[Process: {multiprocessing.current_process().name}] "
+        f"[Thread: {threading.current_thread().name}] "
+        f"[Task: '{atask.get_name()}': {atask.get_coro().__qualname__}]"
+    )
 
-# c = open("registrations_24.12.2024/debug.log").read()
+
+from pprint import pprint
+
+# c = open("registrations_02.12.2024/debug.log").read()
 # # c = open("logs.log").read()
 # # c = open("/home/daniil/Downloads/Telegram Desktop/debug (22).log").read()
 

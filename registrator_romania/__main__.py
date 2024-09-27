@@ -197,6 +197,15 @@ https://127.87.97:8080
 ```
 """
 
+HELP_REPEAT_PROTECTION = """
+По умолчанию: off
+
+Защита от дублированных регистраций.
+
+Если включено (`on`), то скрипт не будет регистрировать пользователей, которые уже 
+зарегистрированы ранее.
+"""
+
 
 async def run_docker_compose(containers: int, env_vars: dict):
     command = (
@@ -262,6 +271,7 @@ def run_as_processes(process_count: int, params: dict):
     proxy_provider_url = None if not proxy_provider_url else proxy_provider_url
     without_remote_database = False if without_remote_database == "no" else True
     proxy_file = params["proxy_file"]
+    repeat_protection = True if params["repeat_protection"] == "on" else False
     
     if multiple_requesting_on == "no":
         multiple_requesting_on = False
@@ -301,7 +311,8 @@ def run_as_processes(process_count: int, params: dict):
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
-        "proxy_file": proxy_file if proxy_file else None
+        "proxy_file": proxy_file if proxy_file else None,
+        "repeat_protection": repeat_protection
     }
 
     processes: list[Process] = []
@@ -329,6 +340,11 @@ def run_as_processes(process_count: int, params: dict):
     "--registration_date",
     default=str(registration_date),
     help=HELP_REGISTRATION_DATE,
+)
+@click.option(
+    "--repeat_protection",
+    default="off",
+    help=HELP_REPEAT_PROTECTION,
 )
 # @click.option("--save_logs", default="yes", help=HELP_SAVE_LOGS)
 @click.option("--users_file", help=HELP_USERS_FILE)
@@ -375,6 +391,7 @@ def main(
     multiple_requesting_on: str,
     multiple_requesting_threads: int,
     proxy_file: str,
+    repeat_protection: str,
     without_remote_database: str = "yes",
     mode: str = "sync",
     proxy_provider_url: str = "",
@@ -384,6 +401,7 @@ def main(
     async_requests_num: int = 20,
     use_shuffle: str = "yes"
 ):
+    assert repeat_protection in ["on", "off"], "Параметр repeat_protection должен быть либо `on`, либо `off`"
     assert str(
         tip_formular
     ).isdigit(), "Параметр tip_formular должен быть числом!"
@@ -414,7 +432,7 @@ def main(
 
     try:
         datetime.strptime(multiple_requesting_on, "%H:%M:%S")
-    except:
+    except Exception:
         if multiple_requesting_on != "no":
             raise ValueError(
                 "Параметр multiple_requesting_on должен быть либо no, либо "
@@ -448,7 +466,8 @@ def main(
         "multiple_requesting_on": multiple_requesting_on,
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
-        "proxy_file": proxy_file
+        "proxy_file": proxy_file,
+        "repeat_protection": repeat_protection
     }
 
     assert processes in [

@@ -1,6 +1,4 @@
 import asyncio
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from registrator_romania.cli import run as run_cli
 
 

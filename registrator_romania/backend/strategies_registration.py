@@ -22,6 +22,7 @@ import aiohttp
 from loguru import logger
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+import traceback
 
 try:
     import uvloop as floop
@@ -103,6 +104,7 @@ class StrategyWithoutProxy:
         only_multiple: bool = True,
         requests_per_user: int = None,
         requests_on_user_per_second: int = 1,
+        enable_repeat_protection: bool = True,
     ) -> None:
         setup_loggers(registration_date=registration_date)
         init_args = inspect.currentframe().f_locals.copy()
@@ -137,7 +139,8 @@ class StrategyWithoutProxy:
         self._only_multiple = only_multiple
 
         self._g_recaptcha_responses = []
-
+        
+        self._enable_repeat_protection = enable_repeat_protection
     async def start(self):
         if self._users_data:
             logger.debug("get unregister users")
@@ -276,31 +279,43 @@ class StrategyWithoutProxy:
                 # # process data synchronization
                 # async with asyncio.timeout(10):
                 #     await asyncio.to_thread(lock.acquire)
-                    
-                try:
+                
+                if self._enable_repeat_protection:
+                    # try:
                     if process_waiters.count(user_id) >= 5:
-                        logger.debug(
-                            f"process lock. curr_task: {curr_task}. user_id: {user_id}. wait for another tasks finish attempt"
+                        msg = (
+                            f"process lock. curr_task: {curr_task}. "
+                            f"user_id: {user_id}. wait for another "
+                            "tasks finish attempt"
                         )
+                        logger.debug(msg)
                         await wait_for_registration(q, user_id)
 
                     if user_id in registered_users or user_data in lst:
-                        logger.debug(
-                            f"process lock. curr_task: {curr_task}. user_id: {user_id}. already registered"
+                        msg = (
+                            f"process lock. curr_task: {curr_task}. "
+                            f"user_id: {user_id}. already registered"
                         )
+                        logger.debug(msg)
                         return
 
-                    logger.debug(
-                        f"process lock. curr_task: {curr_task}. user_id: {user_id}. try to registrate"
+                    msg = (
+                        f"process lock. curr_task: {curr_task}. "
+                        f"user_id: {user_id}. try to registrate"
                     )
+                    logger.debug(msg)
                     process_waiters.append(user_id)
-                finally:
-                    async with asyncio.timeout(10):
-                        try:
-                            logger.debug(f"release lock for user_id: {user_id}")
-                            # await asyncio.to_thread(lock.release)
-                        except ValueError:
-                            pass
+                    
+                    # finally:
+                    #     async with asyncio.timeout(10):
+                    #         try:
+                    #             msg =(
+                    #                 f"release lock for user_id: {user_id}"
+                    #             )
+                    #             logger.debug(msg)
+                    #             # await asyncio.to_thread(lock.release)
+                    #         except ValueError:
+                    #             pass
 
                 g_recaptcha_response = None
                 try:
@@ -322,7 +337,7 @@ class StrategyWithoutProxy:
                     proxy=proxy,
                     timeout=10,
                     queue=queue,
-                    g_recaptcha_response=g_recaptcha_response,
+                    g_recaptcha_response=None,
                 )
 
                 if not isinstance(html, str):
@@ -359,16 +374,12 @@ class StrategyWithoutProxy:
                         pass
                 
                 try:
-                    async with asyncio.timeout(3):
-                        await asyncio.to_thread(q.put_nowait, user_id)
+                    if self._enable_repeat_protection:
+                        async with asyncio.timeout(3):
+                            await asyncio.to_thread(q.put_nowait, user_id)
                 except Exception:
                     pass
-                
-                # try:
-                #     lock.release()
-                # except ValueError:
-                #     pass
-                
+
         loop = asyncio.get_running_loop()
         if self._requests_on_user_per_second:
             tasks = [
@@ -384,13 +395,19 @@ class StrategyWithoutProxy:
         random.shuffle(tasks)
         registered_users = set()
 
-        timeout = 15
+        timeout = 30
         try:
             async with asyncio.timeout(timeout):
                 await asyncio.gather(*tasks, return_exceptions=True)
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
             cur_info = get_current_info()
-            logger.error(f"[{cur_info}] - error in asyncio.gather: {e}")
+            msg = (
+                f"[{cur_info}] - error in asyncio.gather: "
+                f"{e.__class__.__name__}: {e}.\ntraceback: "
+                f"{traceback.format_exc()}"
+            )
+            
+            logger.error(msg)
             for task in tasks:
                 try:
                     task.cancel()
@@ -424,27 +441,48 @@ class StrategyWithoutProxy:
 
             process: list[Process] = []
             
+            pr_args = (instance, dirname, lst, locks, waiters_list, q)
+            num = 0
             while True:
-                for num in range(self._multiple_registration_threads):
-                    num += 1
+                # OLD METHOD
+                # for num in range(self._multiple_registration_threads):
+                #     num += 1
                     
-                    pr_args = (instance, dirname, lst, locks, waiters_list, q)
+                #     pr = Process(target=run_multiple, args=pr_args)
+                #     pr.start()
+                    
+                #     process.append(pr)
+                #     logger.debug(f"Process {pr.name} started ({num})")
+
+                # for pr in process:
+                #     pr.join()
+                #     logger.debug(f"Process {pr.name} finished")
+                
+                # NEW METHOD
+                try:
                     pr = Process(target=run_multiple, args=pr_args)
                     pr.start()
+                    num += 1
                     
                     process.append(pr)
                     logger.debug(f"Process {pr.name} started ({num})")
-
-                for pr in process:
-                    pr.join()
-                    logger.debug(f"Process {pr.name} finished")
-                    
-                logger.debug("All processes finished")
+                    time.sleep(random.uniform(0.1, 1))
+                except Exception as e:
+                    logger.exception(e)
                 
                 now = self._get_dt_now()
                 if now.hour == self._stop_when[0] and now.minute >= self._stop_when[1]:
                     break
-                
+            
+            for pr in process:
+                try:
+                    pr.terminate()
+                except Exception as e:
+                    logger.exception(e)
+                    pr.kill()
+            
+            [pr.kill() for pr in process]
+            logger.debug("All processes finished")
             scheduler.remove_job(job_id=job.id)
             return
 
@@ -708,9 +746,9 @@ class StrategyWithoutProxy:
 
                 tasks.append(append())
 
-        if self._multiple_registration_on:
-            loop = asyncio.get_running_loop()
-            asyncio.eager_task_factory(loop=loop, coro=append_g_recaptcha_response())
+        # if self._multiple_registration_on:
+        #     loop = asyncio.get_running_loop()
+        #     asyncio.eager_task_factory(loop=loop, coro=append_g_recaptcha_response())
 
         while True:
             logger.debug("Start cycle")

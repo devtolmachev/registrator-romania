@@ -38,7 +38,8 @@ async def main_async(
     multiple_requesting_on: datetime | bool,
     users_data: list[dict],
     multiple_requesting_threads: int,
-    proxy_file: str
+    proxy_file: str,
+    repeat_protection: bool
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
@@ -83,7 +84,8 @@ async def main_async(
             multiple_registration_threads=multiple_requesting_threads,
             proxies_file=proxy_file,
             requests_on_user_per_second=5,
-            requests_per_user=40
+            requests_per_user=40,
+            enable_repeat_protection=repeat_protection
         )
         logger.info("Start strategy of registrations")
         await strategy.start()

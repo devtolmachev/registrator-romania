@@ -273,6 +273,9 @@ def run_as_processes(process_count: int, params: dict):
     proxy_file = params["proxy_file"]
     repeat_protection = True if params["repeat_protection"] == "on" else False
     
+    strategy = params["strategy"]
+    rust_strategy_parallel_threads = params["rust_strategy_parallel_threads"]
+
     if multiple_requesting_on == "no":
         multiple_requesting_on = False
     else:
@@ -312,7 +315,9 @@ def run_as_processes(process_count: int, params: dict):
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
         "proxy_file": proxy_file if proxy_file else None,
-        "repeat_protection": repeat_protection
+        "repeat_protection": repeat_protection,
+        "strategy": strategy,
+        "rust_strategy_parallel_threads": rust_strategy_parallel_threads
     }
 
     processes: list[Process] = []
@@ -381,6 +386,16 @@ def run_as_processes(process_count: int, params: dict):
     default="",
     help=HELP_PROXY_FILE,
 )
+@click.option(
+    "--strategy",
+    default="default",
+    help="какую стратегию использовать. может быть `default` или `rust`",
+)
+@click.option(
+    "--rust_strategy_parallel_threads",
+    default=1,
+    help="сколько потоков должно работать параллельно",
+)
 def main(
     stop_time: str,
     start_time: str,
@@ -399,7 +414,9 @@ def main(
     save_logs: str = "yes",
     containers: int = 1,
     async_requests_num: int = 20,
-    use_shuffle: str = "yes"
+    use_shuffle: str = "yes",
+    strategy: str = "default",
+    rust_strategy_parallel_threads: int = 1,
 ):
     assert repeat_protection in ["on", "off"], "Параметр repeat_protection должен быть либо `on`, либо `off`"
     assert str(
@@ -467,7 +484,9 @@ def main(
         "users_data": users_data,
         "multiple_requesting_threads": multiple_requesting_threads,
         "proxy_file": proxy_file,
-        "repeat_protection": repeat_protection
+        "repeat_protection": repeat_protection,
+        "strategy": strategy,
+        "rust_strategy_parallel_threads": rust_strategy_parallel_threads
     }
 
     assert processes in [

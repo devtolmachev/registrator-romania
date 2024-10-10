@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import copy
 from datetime import datetime, timedelta
 import inspect
@@ -50,9 +51,6 @@ from registrator_romania.backend.utils import (
     setup_loggers,
 )
 from registrator_romania.backend.utils import get_dt_moscow
-from registrator_romania.frontend.telegram_bot.alerting import (
-    send_msg_into_chat,
-)
 from registrator_romania.backend.net import AIOHTTP_NET_ERRORS
 
 # ssl._create_default_https_context = ssl._create_unverified_context
@@ -76,7 +74,6 @@ def run_multiple(
                 res = await instance._start_multiple_registrator(dirname, lst, locks, waiters, q)
             except Exception as e:
                 logger.exception(e)
-            
         return res
 
     loop = asyncio.new_event_loop()
@@ -103,7 +100,7 @@ class StrategyWithoutProxy:
         proxies_file: str = None,
         only_multiple: bool = True,
         requests_per_user: int = None,
-        requests_on_user_per_second: int = 1,
+        requests_on_user_per_second: int = 5,
         enable_repeat_protection: bool = True,
     ) -> None:
         setup_loggers(registration_date=registration_date)
@@ -205,6 +202,9 @@ class StrategyWithoutProxy:
                 continue
 
     def get_proxy(self):
+        if not self._proxies_file_path:
+            return
+        
         with open(self._proxies_file_path) as f:
             src_list_proxies = f.read().splitlines()
             proxies = iter(src_list_proxies)
@@ -751,12 +751,9 @@ class StrategyWithoutProxy:
         #     asyncio.eager_task_factory(loop=loop, coro=append_g_recaptcha_response())
 
         while True:
-            logger.debug("Start cycle")
+            logger.debug("Start cycle [THE ONLY DEBUG MESSAGE]")
             now = self._get_dt_now()
             await asyncio.sleep(1.5)
-            logger.debug(
-                f"g recaptcha responses items collected: {len(self._g_recaptcha_responses)}"
-            )
             users_for_registrate = self._users_data.copy()
 
             if (
@@ -946,6 +943,7 @@ class StrategyWithoutProxy:
                 start_date,
                 stop_date,
             ],
+            proxy=self.get_proxy()
         )
 
         registered_users = response["data"]
@@ -981,6 +979,172 @@ class StrategyWithoutProxy:
             logger.exception(e)
 
 
+
+def schedule_multiple_registrations_bindings(reg_date: datetime, tip_formular, start_dt, users_data, proxies: list[str] = None, parallel_threads: int = 1):
+    dirname = f"registrations_{reg_date.strftime("%d.%m.%Y")}"
+    Path(dirname).mkdir(exist_ok=True)
+    
+    reqs = 0
+    resps = 0
+    start = time.time()
+    
+    
+    def call_registrator_stop_on_user(user_data):
+        nonlocal registrator_tasks
+        fn, ln = user_data["Nume Pasaport"], user_data["Prenume Pasaport"]
+        logger.debug(f"[SUCCESS USER] callback trigger that indicates that the user has registered: [{fn}] [{ln}]")
+        registrator_tasks[fn] = "finished"
+    
+    
+    registrator_tasks = {}
+    async def registrate_user(user_data: dict):
+        nonlocal reqs, start, registrator_tasks
+        
+        registrator_tasks[user_data["Nume Pasaport"]] = "pending"
+        loop = asyncio.get_event_loop()
+        loop.set_task_factory(asyncio.eager_task_factory)
+        
+        success = False
+        fn, ln = user_data["Nume Pasaport"], user_data["Prenume Pasaport"]
+        proxy = None
+        tasks = []
+        while not success:
+            if registrator_tasks[user_data["Nume Pasaport"]] == "finished":
+                for task in asyncio.all_tasks():
+                    try:
+                        task.set_exception(Exception)
+                    except Exception:
+                        pass
+                success = True
+                return
+            
+            if time.time() - start > 20:
+                success = True
+                return
+            
+            if proxies:
+                proxy = random.choice(proxies)
+            try:
+                # t = loop.create_task(process(fn, ln, proxy, user_data))
+                t = Thread(target=process, args=(fn, ln, proxy, user_data))
+                t.start()
+                tasks.append(t)
+            except RuntimeError as e:
+                print(f"RuntimeError: {e}")
+                continue
+
+            took = time.time() - start
+            logger.debug(f"От начала прошло (секунды): {took}. Запросов отправлено: {reqs}. Ответов получено: {resps}")
+            # if len(tasks) % 100 == 0:
+            #     await asyncio.sleep(5)
+                # await asyncio.sleep(10)
+
+        
+    def process(fn, ln, proxy, user_data):
+        nonlocal reqs, resps
+        logger.debug(f"make registration for {fn} {ln}")
+        reqs += 1
+        from bindings2 import APIRomania as BindingsApiRomania, CaptchaPasser
+
+        try:
+            api = BindingsApiRomania()
+            res = api.make_registration_sync(user_data, tip_formular, reg_date.strftime("%Y-%m-%d"), proxy=proxy)
+            # res = await asyncio.sleep(1.5)
+            resps += 1
+
+            if not isinstance(res, str):
+                logger.error(f"response from server is not html (not string): {res} ({res.__class__.__name__})")
+                return
+            
+            if APIRomania.is_success_registration(res):
+                call_registrator_stop_on_user(user_data)
+                msg = f"successfully registrate {fn} {ln}"
+                logger.success(msg)
+                path = Path().joinpath(dirname, f"success_{fn}-{ln}.html")
+                with open(path.__str__(), "w") as f:
+                    f.write(res)
+                
+            else:
+                error = APIRomania.get_error_registration_as_text(res)
+                if not error:
+                    error = f"raw html: {res}"
+                logger.error(f"{fn} {ln} - {error}")
+        except Exception as e:
+            logger.exception(e)
+            pass
+        
+    
+    def run_registrations(users_data):
+        def run(u):
+            asyncio.set_event_loop_policy(floop.EventLoopPolicy())
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(registrate_user(u))
+            
+        try:
+            with ThreadPoolExecutor(max_workers=32) as pool:
+                futures = pool.map(run, users_data)
+                for future in futures:
+                    try:
+                        future.result()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            print("finally")
+            scheduler.remove_job(job.id)
+    
+    _users_data = [
+        u for user in users_data for u in [user] * parallel_threads
+    ]
+    scheduler = BackgroundScheduler()
+    job = scheduler.add_job(
+        run_registrations,
+        "cron",
+        args=(_users_data,),
+        start_date=start_dt,
+        timezone=ZoneInfo("Europe/Moscow"),
+        max_instances=1,
+    )
+    scheduler.start()
+    logging.getLogger("apscheduler").setLevel(logging.ERROR)
+    
+
+class BindingStrategy(StrategyWithoutProxy):
+    
+    def __init__(self, *args, **kwargs):
+        self._parallel_threads = kwargs.pop("parallel_threads", 1)
+        super().__init__(*args, **kwargs)
+    
+    async def schedule_multiple_registrations(self, dirname: str = None):
+        
+        proxies = None
+        if self._proxies_file_path:
+            proxies = []
+            with open(self._proxies_file_path) as f:
+                for line in f.read().splitlines():
+                    proxies_range = re.search(r"<(\d+-\d+)>", line)
+                    if proxies_range:
+                        proxies_range = proxies_range.group(1)
+                        start_port, stop_port = proxies_range.split("-")
+                        line = re.sub(
+                            r"<\d+-\d+>",
+                            str(random.randrange(start=int(start_port), stop=int(stop_port))),
+                            line,
+                        )
+                        
+                    proxies.append(line)
+              
+        schedule_multiple_registrations_bindings(
+                self._registration_date,
+                self._tip_formular,
+                self._multiple_registration_on,
+                self._users_data.copy(),
+                proxies,
+                self._parallel_threads,
+        )
+
+
 async def prepare_database(reg_dt: datetime, users_data: list[dict]):
     async with UsersService() as service:
         users_from_db = await service.get_users_by_reg_date(registration_date=reg_dt)
@@ -1008,17 +1172,35 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 
 async def main():
     # ISAI - 2
-    tip = 5
-    reg_date = datetime(year=2024, month=12, day=9)
+    
+    reg_date = datetime(year=2025, month=1, day=13)
+    # data = generate_fake_users_data(5)
+    data = get_users_data_from_xslx("users.xlsx")
+    data = generate_fake_users_data(80)
+    tip = 4
+    tip = 2
+    multiple_requests = datetime.now().replace(hour=8, minute=59, second=49)
+    multiple_requests = datetime.now()
+
+    strategy = BindingStrategy(
+        registration_date=reg_date,
+        tip_formular=tip,
+        users_data=data,
+        mode="sync",
+        async_requests_num=2,
+        multiple_registration_on=multiple_requests,
+        multiple_registration_threads=5,
+        without_remote_database=True,
+        proxies_file="proxies.txt",
+        stop_when=[9, 2],
+        requests_on_user_per_second=5,
+    )
+    await strategy.start()
+    return
     # logger.add("logs.log", level="DEBUG")
 
-    data = generate_fake_users_data(40)
 
     # tip = 2
-    data = get_users_data_from_xslx("users.xlsx")
-    # data = generate_fake_users_data(10)
-    tip = 4
-    reg_date = datetime(year=2025, month=1, day=23)
 
     # data = get_users_data_from_xslx("users.xlsx")
     # data = get_users_data_from_xslx("/home/daniil/Downloads/Telegram Desktop/users (3).xlsx")
@@ -1029,7 +1211,6 @@ async def main():
     #     await prepare_database(reg_date, data)
 
     multiple_requests = datetime.now() - timedelta(seconds=3)
-    multiple_requests = datetime.now().replace(hour=8, minute=55)
     strategy = StrategyWithoutProxy(
         registration_date=reg_date,
         tip_formular=tip,
@@ -1046,8 +1227,8 @@ async def main():
         requests_on_user_per_second=1,
     )
     # res = await strategy.start()
-    res = await strategy.get_registerer_users(1)
-    print(res, len(res), len(data))
+    # res = await strategy.get_registerer_users(0)
+    # print(res, len(res), len(data))
     ...
 
 

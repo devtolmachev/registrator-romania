@@ -136,6 +136,7 @@ class APIRomania:
                 )
 
                 url_post = f"{base_url}/{data["endpoint"]}/reload?k={params["k"]}"
+                prev = "https://www.google.com/recaptcha/api2/reload?k=6LcnPeckAAAAABfTS9aArfjlSyv7h45waYSB_LwT"
                 async with session.post(
                     url_post, data=this_post_data, proxy=proxy, ssl=self._ssl
                 ) as resp:
@@ -157,8 +158,9 @@ class APIRomania:
             proxy = {"http": proxy, "https": proxy}
 
         return await asyncio.to_thread(reCaptchaV3, self.CAPTCHA_URL, proxy=proxy, timeout=timeout)
-
-    def get_error_registration_as_text(self, html_code: str) -> str:
+    
+    @staticmethod
+    def get_error_registration_as_text(html_code: str) -> str:
         r"""
         Return text of error in <p class="alert alert-danger"> tag
         """
@@ -167,8 +169,9 @@ class APIRomania:
         if not alert_tag:
             return ""
         return alert_tag.text
-
-    def is_success_registration(self, html_code: str) -> bool:
+        
+    @staticmethod
+    def is_success_registration(html_code: str) -> bool:
         r"""
         Return True if html response have paragraph `Felicitări`
         otherwise False.
@@ -536,6 +539,7 @@ class APIRomania:
         numar_pasaport: str = "",
         limit: int = 500,
         data_programarii: list[datetime] = None,
+        proxy: str = None
     ):
         if data_programarii:
             dt_start, dt_end = map(lambda dt: dt.strftime("%Y-%m-%d"), data_programarii)
@@ -603,10 +607,19 @@ class APIRomania:
         session._default_headers = self.headers_registrations_list_url
         async with session:
             try:
-                async with session.post(self.REGISTRATIONS_LIST_URL, data=data) as resp:
+                async with session.post(self.REGISTRATIONS_LIST_URL, data=data, verify_ssl=False, proxy=proxy) as resp:
                     raw = await resp.read()
                     return await resp.json(content_type=resp.content_type)
-            except AIOHTTP_NET_ERRORS:
+            except AIOHTTP_NET_ERRORS as e:
                 pass
             except Exception as e:
                 logger.exception(e)
+
+
+async def main():
+    a = APIRomania()
+    await a.get_recaptcha_token()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

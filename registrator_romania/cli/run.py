@@ -12,6 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from registrator_romania.backend.database.api import UsersService
 from registrator_romania.backend.strategies_registration import (
     StrategyWithoutProxy,
+    BindingStrategy,
     database_prepared_correctly,
     prepare_database,
 )
@@ -39,7 +40,9 @@ async def main_async(
     users_data: list[dict],
     multiple_requesting_threads: int,
     proxy_file: str,
-    repeat_protection: bool
+    repeat_protection: bool,
+    strategy: str,
+    rust_strategy_parallel_threads: int,
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
@@ -69,28 +72,52 @@ async def main_async(
     async def start_registrations():
         # For debug commented code
         # users_data = generate_fake_users_data(20)
-        strategy = StrategyWithoutProxy(
-            registration_date=registration_date,
-            tip_formular=tip_formular,
-            use_shuffle=use_shuffle,
-            logging=save_logs,
-            users_data=users_data,
-            stop_when=[stop_time.hour, stop_time.minute],
-            mode=mode,
-            async_requests_num=async_requests_num,
-            residental_proxy_url=proxy_provider_url,
-            without_remote_database=without_remote_database,
-            multiple_registration_on=multiple_requesting_on,
-            multiple_registration_threads=multiple_requesting_threads,
-            proxies_file=proxy_file,
-            requests_on_user_per_second=5,
-            requests_per_user=40,
-            enable_repeat_protection=repeat_protection
-        )
-        logger.info("Start strategy of registrations")
-        await strategy.start()
+        if strategy == "default":
+            strategy_cls = StrategyWithoutProxy(
+                registration_date=registration_date,
+                tip_formular=tip_formular,
+                use_shuffle=use_shuffle,
+                logging=save_logs,
+                users_data=users_data,
+                stop_when=[stop_time.hour, stop_time.minute],
+                mode=mode,
+                async_requests_num=async_requests_num,
+                residental_proxy_url=proxy_provider_url,
+                without_remote_database=without_remote_database,
+                multiple_registration_on=multiple_requesting_on,
+                multiple_registration_threads=multiple_requesting_threads,
+                proxies_file=proxy_file,
+                requests_on_user_per_second=5,
+                requests_per_user=40,
+                enable_repeat_protection=repeat_protection,
+            )
+        elif strategy == "rust":
+            strategy_cls = BindingStrategy(
+                registration_date=registration_date,
+                tip_formular=tip_formular,
+                use_shuffle=use_shuffle,
+                logging=save_logs,
+                users_data=users_data,
+                stop_when=[stop_time.hour, stop_time.minute],
+                mode=mode,
+                async_requests_num=async_requests_num,
+                residental_proxy_url=proxy_provider_url,
+                without_remote_database=without_remote_database,
+                multiple_registration_on=multiple_requesting_on,
+                multiple_registration_threads=multiple_requesting_threads,
+                proxies_file=proxy_file,
+                requests_on_user_per_second=5,
+                requests_per_user=40,
+                enable_repeat_protection=repeat_protection,
+                parallel_threads=rust_strategy_parallel_threads,
+            )
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+
+        logger.info(f"Start strategy of registrations [{strategy}]")
+        await strategy_cls.start()
         scheduler.remove_job(job_id=job.id)
-    
+
     if not without_remote_database:
         try:
             async with asyncio.timeout(10):

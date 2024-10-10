@@ -200,21 +200,24 @@ def setup_loggers(registration_date: datetime, save_logs: bool = True):
             diagnose=True,
         )
         logger.add(
-            partial(async_log_message, path=Path().joinpath(dirpath, "errors.log")),
+            Path().joinpath(dirpath, "errors.log"),
+            # partial(async_log_message, path=Path().joinpath(dirpath, "errors.log")),
             filter=filter_by_log_level(loglevels=["ERROR"]),
             enqueue=True,
             backtrace=True,
             diagnose=True,
         )
         logger.add(
-            partial(async_log_message, path=Path().joinpath(dirpath, "debug.log")),
+            Path().joinpath(dirpath, "debug.log"),
+            # partial(async_log_message, path=Path().joinpath(dirpath, "debug.log")),
             filter=filter_by_log_level(loglevels=["DEBUG"]),
             enqueue=True,
             backtrace=True,
             diagnose=True,
         )
         logger.add(
-            partial(async_log_message, path=Path().joinpath(dirpath, "success.log")),
+            Path().joinpath(dirpath, "success.log"),
+            # partial(async_log_message, path=Path().joinpath(dirpath, "success.log")),
             filter=filter_by_log_level(loglevels=["SUCCESS"]),
             enqueue=True,
             backtrace=True,
@@ -438,18 +441,47 @@ def get_current_info():
 
 from pprint import pprint
 
-# c = open("registrations_02.12.2024/debug.log").read()
-# # c = open("logs.log").read()
-# # c = open("/home/daniil/Downloads/Telegram Desktop/debug (22).log").read()
 
-# times = get_success_regs_time_from_debug_log(c)
-# all_req = get_requests_times_from_log(c)
-# # times = get_rpc_times(c)
+async def main():
+    from concurrent.futures import ThreadPoolExecutor
+    from bindings2 import test_request, CaptchaPasser, APIRomania
+    # print(test_request())
+    users_data = generate_fake_users_data(1)
+    
+    # passer = CaptchaPasser()
+    reg_date = "2025-01-14"
+    api = APIRomania()
 
-# # pprint(times)
-# pprint(times["uniq"])
-# pprint(len(all_req))
-# print(f"{len(times['uniq'])}/{len(times['all'])}")
-# a = 'uniq'
-# print((times[a][-1] - times[a][0]).total_seconds())
-# print(len(times))
+    def registrate(user_data):
+        # token = passer.get_recaptcha_token()
+        res = api.make_registration(user_data, 2, reg_date, proxy="http://xP3SrZGCP3C6:RNW78Fm5@pool.proxy.market:10005")
+        success = isinstance(res, str) and res.count("Felicitări")
+        print(f"user num: {users_data.index(user_data)}, success: {bool(success)}")
+        
+    
+    with ThreadPoolExecutor() as pool:
+        start = datetime.now()
+        for res in pool.map(registrate, users_data):
+            ...
+        print(datetime.now() - start)
+        
+    ...
+    
+    
+if __name__ == "__main__":
+    asyncio.run(main())
+    # c = open("registrations_02.12.2024/debug.log").read()
+    # # c = open("logs.log").read()
+    # # c = open("/home/daniil/Downloads/Telegram Desktop/debug (22).log").read()
+
+    # times = get_success_regs_time_from_debug_log(c)
+    # all_req = get_requests_times_from_log(c)
+    # # times = get_rpc_times(c)
+
+    # # pprint(times)
+    # pprint(times["uniq"])
+    # pprint(len(all_req))
+    # print(f"{len(times['uniq'])}/{len(times['all'])}")
+    # a = 'uniq'
+    # print((times[a][-1] - times[a][0]).total_seconds())
+    # print(len(times))

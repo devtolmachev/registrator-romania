@@ -21,7 +21,7 @@ pypasser = "^0.0.5"
 ua-generator = "^0.5.0"
 esprima = "^4.0.1"
 pyjsparser = "^2.7.1"
-aiohttp-socks = "^0.8.4"
+# aiohttp-socks = "^0.8.4"
 pytest = "^8.2.2"
 pytest-asyncio = "^0.23.7"
 openpyxl = "^3.1.5"
@@ -42,6 +42,9 @@ flet = "^0.24.1"
 uvloop = { version = "^0.20.0", markers = "platform_system != 'Windows'" }
 winloop = { version = "^0.1.6", markers = "platform_system == 'Windows'" }
 aiofiles = "^24.1.0"
+maturin = {extras = ["zig"], version = "^1.7.4"}
+# bindings2 = {path = "bindings/target/wheels/bindings2-0.1.0-cp312-cp312-manylinux_2_34_x86_64.whl"}
+# bindings2 = {path = "bindings2.whl"}
 
 
 [build-system]

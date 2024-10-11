@@ -984,7 +984,7 @@ class StrategyWithoutProxy:
 
 reqs = 0
 resps = 0
-start = time.time()
+start = None
 
 def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data: dict, stop_when: int, proxies: list[str] = None):
     dirname = f"registrations_{reg_date.strftime("%d.%m.%Y")}"
@@ -1016,6 +1016,8 @@ def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data:
         registrator_tasks[user_data["Nume Pasaport"]] = "pending"
         loop = asyncio.get_event_loop()
         loop.set_task_factory(asyncio.eager_task_factory)
+        if not start:
+            start = time.time()
         
         success = False
         fn, ln = user_data["Nume Pasaport"], user_data["Prenume Pasaport"]

@@ -1,6 +1,3 @@
-telegram_bot:
-  # chat_id: -4207291511
-  chat_id: -4255435072
 
 remote_db:
   uri: $REMOTE_POSTGRESQL_URI

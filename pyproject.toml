@@ -7,35 +7,23 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-gspread-asyncio = "^2.0.0"
 apscheduler = "^3.10.4"
 loguru = "^0.7.2"
 envyaml = "^1.10.211231"
 pandas = "^2.2.2"
-aiogram = "^3.6.0"
 bs4 = "^0.0.2"
 lxml = "^5.2.2"
-fake-useragent = "^1.5.1"
-google-recaptcha = "^2.0.1"
 pypasser = "^0.0.5"
 ua-generator = "^0.5.0"
-esprima = "^4.0.1"
 pyjsparser = "^2.7.1"
-# aiohttp-socks = "^0.8.4"
-pytest = "^8.2.2"
-pytest-asyncio = "^0.23.7"
 openpyxl = "^3.1.5"
 orjson = "^3.10.6"
 python-dateutil = "^2.9.0.post0"
-requests-toolbelt = "^1.0.0"
-slimit = "^0.8.1"
-js2py = "^0.74"
 python-docx = "^1.1.2"
 sqlalchemy = "^2.0.31"
 asyncpg = "^0.29.0"
 click = "^8.1.7"
 setuptools = "^71.1.0"
-scandir = "^1.10.0"
 faker = "^26.0.0"
 httpx = "^0.27.0"
 flet = "^0.24.1"
@@ -43,8 +31,6 @@ uvloop = { version = "^0.20.0", markers = "platform_system != 'Windows'" }
 winloop = { version = "^0.1.6", markers = "platform_system == 'Windows'" }
 aiofiles = "^24.1.0"
 maturin = {extras = ["zig"], version = "^1.7.4"}
-# bindings2 = {path = "bindings/target/wheels/bindings2-0.1.0-cp312-cp312-manylinux_2_34_x86_64.whl"}
-# bindings2 = {path = "bindings2.whl"}
 
 
 [build-system]

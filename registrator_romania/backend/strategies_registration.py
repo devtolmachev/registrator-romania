@@ -138,6 +138,8 @@ class StrategyWithoutProxy:
         self._g_recaptcha_responses = []
         
         self._enable_repeat_protection = enable_repeat_protection
+        self._scheduler = BackgroundScheduler()
+        
     async def start(self):
         if self._users_data:
             logger.debug("get unregister users")
@@ -501,7 +503,7 @@ class StrategyWithoutProxy:
             # logger.debug("All threads finished")
             # scheduler.remove_job(job_id=job.id)
 
-        scheduler = BackgroundScheduler()
+        scheduler = self._scheduler
         job = scheduler.add_job(
             start_threads,
             "cron",
@@ -980,25 +982,36 @@ class StrategyWithoutProxy:
 
 
 
-def schedule_multiple_registrations_bindings(reg_date: datetime, tip_formular, start_dt, users_data, proxies: list[str] = None, parallel_threads: int = 1):
+reqs = 0
+resps = 0
+start = time.time()
+
+def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data: dict, stop_when: int, proxies: list[str] = None):
     dirname = f"registrations_{reg_date.strftime("%d.%m.%Y")}"
     Path(dirname).mkdir(exist_ok=True)
+    from bindings2 import APIRomania as BindingsApiRomania
     
-    reqs = 0
-    resps = 0
-    start = time.time()
+    if not proxies:
+        api = BindingsApiRomania(proxy=None)
+        api_store = {None: api}
+    else:
+        api_store = {
+        proxy: BindingsApiRomania(proxy=proxy)
+        for proxy in proxies
+    }
     
     
     def call_registrator_stop_on_user(user_data):
         nonlocal registrator_tasks
         fn, ln = user_data["Nume Pasaport"], user_data["Prenume Pasaport"]
-        logger.debug(f"[SUCCESS USER] callback trigger that indicates that the user has registered: [{fn}] [{ln}]")
+        logger.success(f"[SUCCESS USER] callback trigger that indicates that the user has registered: [{fn}] [{ln}]")
         registrator_tasks[fn] = "finished"
     
     
     registrator_tasks = {}
     async def registrate_user(user_data: dict):
-        nonlocal reqs, start, registrator_tasks
+        nonlocal registrator_tasks
+        global reqs, start
         
         registrator_tasks[user_data["Nume Pasaport"]] = "pending"
         loop = asyncio.get_event_loop()
@@ -1009,6 +1022,7 @@ def schedule_multiple_registrations_bindings(reg_date: datetime, tip_formular, s
         proxy = None
         tasks = []
         while not success:
+            now = time.time()
             if registrator_tasks[user_data["Nume Pasaport"]] == "finished":
                 for task in asyncio.all_tasks():
                     try:
@@ -1017,38 +1031,46 @@ def schedule_multiple_registrations_bindings(reg_date: datetime, tip_formular, s
                         pass
                 success = True
                 return
-            
-            if time.time() - start > 20:
-                success = True
-                return
-            
+
             if proxies:
                 proxy = random.choice(proxies)
+                
             try:
-                # t = loop.create_task(process(fn, ln, proxy, user_data))
-                t = Thread(target=process, args=(fn, ln, proxy, user_data))
-                t.start()
+                t = loop.create_task(process(fn, ln, proxy, user_data))
                 tasks.append(t)
             except RuntimeError as e:
                 print(f"RuntimeError: {e}")
                 continue
-
-            took = time.time() - start
-            logger.debug(f"От начала прошло (секунды): {took}. Запросов отправлено: {reqs}. Ответов получено: {resps}")
-            # if len(tasks) % 100 == 0:
-            #     await asyncio.sleep(5)
+            
+            if now > stop_when:
+                return
+            
+            took = now - start
+            logger.info(f"От начала прошло (секунды): {took}. Запросов отправлено: {reqs}. Ответов получено: {resps}")
+            await asyncio.sleep(1.5)
+            if len(tasks) >= 100:
+                api_store[proxy] = BindingsApiRomania(proxy=proxy)
+                logger.debug(f"отправили {reqs} запросов, ждем когда освободятся ресурсы")
+                await asyncio.sleep(5)
+                tasks.clear()
                 # await asyncio.sleep(10)
 
         
-    def process(fn, ln, proxy, user_data):
-        nonlocal reqs, resps
-        logger.debug(f"make registration for {fn} {ln}")
+    
+    async def process(fn, ln, proxy, user_data):
+        global reqs, start, resps
+        th = threading.current_thread()
+        
+        api = api_store[proxy]
         reqs += 1
-        from bindings2 import APIRomania as BindingsApiRomania, CaptchaPasser
 
         try:
-            api = BindingsApiRomania()
-            res = api.make_registration_sync(user_data, tip_formular, reg_date.strftime("%Y-%m-%d"), proxy=proxy)
+            logger.debug(f"[{th.name}] посылаем запрос на регистрацию для {fn} {ln}")
+            try:
+                # res = api.make_registration_sync(user_data, tip_formular, reg_date.strftime("%Y-%m-%d"))
+                res = await api.make_registration(user_data, tip_formular, reg_date.strftime("%Y-%m-%d"))
+            except Exception as e:
+                res = e
             # res = await asyncio.sleep(1.5)
             resps += 1
 
@@ -1071,44 +1093,11 @@ def schedule_multiple_registrations_bindings(reg_date: datetime, tip_formular, s
                 logger.error(f"{fn} {ln} - {error}")
         except Exception as e:
             logger.exception(e)
-            pass
         
-    
-    def run_registrations(users_data):
-        def run(u):
-            asyncio.set_event_loop_policy(floop.EventLoopPolicy())
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(registrate_user(u))
-            
-        try:
-            with ThreadPoolExecutor(max_workers=32) as pool:
-                futures = pool.map(run, users_data)
-                for future in futures:
-                    try:
-                        future.result()
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            print("finally")
-            scheduler.remove_job(job.id)
-    
-    _users_data = [
-        u for user in users_data for u in [user] * parallel_threads
-    ]
-    scheduler = BackgroundScheduler()
-    job = scheduler.add_job(
-        run_registrations,
-        "cron",
-        args=(_users_data,),
-        start_date=start_dt,
-        timezone=ZoneInfo("Europe/Moscow"),
-        max_instances=1,
-    )
-    scheduler.start()
-    logging.getLogger("apscheduler").setLevel(logging.ERROR)
-    
+    asyncio.set_event_loop_policy(floop.EventLoopPolicy())
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(registrate_user(user_data))
+
 
 class BindingStrategy(StrategyWithoutProxy):
     
@@ -1117,7 +1106,6 @@ class BindingStrategy(StrategyWithoutProxy):
         super().__init__(*args, **kwargs)
     
     async def schedule_multiple_registrations(self, dirname: str = None):
-        
         proxies = None
         if self._proxies_file_path:
             proxies = []
@@ -1134,15 +1122,45 @@ class BindingStrategy(StrategyWithoutProxy):
                         )
                         
                     proxies.append(line)
-              
-        schedule_multiple_registrations_bindings(
-                self._registration_date,
-                self._tip_formular,
-                self._multiple_registration_on,
-                self._users_data.copy(),
-                proxies,
-                self._parallel_threads,
+                    
+        users_data = [
+            user_data
+            for _user_data in self._users_data 
+            for user_data in [_user_data] * self._parallel_threads
+        ]
+        
+        stop_when = datetime.now().replace(hour=self._stop_when[0], minute=self._stop_when[1]).timestamp()
+        
+        params = [
+            (self._registration_date, self._tip_formular, user_data, stop_when, proxies)
+            for user_data in users_data
+        ]
+        
+        def run():
+            try:
+                with ThreadPoolExecutor(max_workers=32) as pool:
+                    futures = pool.map(lambda p: run_multiple_registrations_rust(*p), params)
+                    for future in futures:
+                        try:
+                            future.result()
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.exception(e)
+            finally:
+                print("finally")
+                scheduler.remove_job(job.id)
+        
+        scheduler = self._scheduler
+        job = scheduler.add_job(
+            run,
+            "cron",
+            start_date=self._multiple_registration_on,
+            timezone=ZoneInfo("Europe/Moscow"),
+            max_instances=1,
         )
+        scheduler.start()
+        logging.getLogger("apscheduler").setLevel(logging.ERROR)
 
 
 async def prepare_database(reg_dt: datetime, users_data: list[dict]):
@@ -1173,13 +1191,13 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 async def main():
     # ISAI - 2
     
-    reg_date = datetime(year=2025, month=1, day=13)
+    reg_date = datetime(year=2025, month=1, day=16)
     # data = generate_fake_users_data(5)
     data = get_users_data_from_xslx("users.xlsx")
     data = generate_fake_users_data(80)
     tip = 4
     tip = 2
-    multiple_requests = datetime.now().replace(hour=8, minute=59, second=49)
+    multiple_requests = datetime.now().replace(hour=15, minute=24, second=49)
     multiple_requests = datetime.now()
 
     strategy = BindingStrategy(
@@ -1191,8 +1209,8 @@ async def main():
         multiple_registration_on=multiple_requests,
         multiple_registration_threads=5,
         without_remote_database=True,
-        proxies_file="proxies.txt",
-        stop_when=[9, 2],
+        # proxies_file="proxies.txt",
+        stop_when=[22, 42],
         requests_on_user_per_second=5,
     )
     await strategy.start()

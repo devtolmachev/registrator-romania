@@ -195,7 +195,7 @@ def setup_loggers(registration_date: datetime, save_logs: bool = True):
         logger.add(
             sys.stderr,
             filter=filter_by_log_level(loglevels=["INFO", "SUCCESS", "ERROR"]),
-            enqueue=True,
+            # enqueue=True,
             backtrace=True,
             diagnose=True,
         )

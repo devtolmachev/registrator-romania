@@ -31,19 +31,10 @@ fn get_data_for_captcha() -> HashMap<String, String> {
 }
 
 
-pub async fn get_recaptcha_token(proxy: Option<String>) -> String {
+pub async fn get_recaptcha_token(client: Client) -> Result<String, Error> {
     let base_url = "https://www.google.com/recaptcha";
+    let session = client.clone();
         
-    let session: Client;
-    if proxy.is_some() {
-        let p = reqwest::Proxy::http(proxy.unwrap().as_str()).unwrap();
-        session = Client::builder()
-            .danger_accept_invalid_certs(true)
-            .proxy(p).build().unwrap();
-    } else {
-        session = Client::builder().danger_accept_invalid_certs(true).build().unwrap();
-    };
-
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
     let data = get_data_for_captcha();
@@ -53,7 +44,14 @@ pub async fn get_recaptcha_token(proxy: Option<String>) -> String {
     let resp_for_token = session.get(url_get)
         .headers(headers.clone()).send().await;
 
+    if resp_for_token.is_err() {
+        return Err(resp_for_token.err().unwrap())
+    }
+
     let response_for_token = resp_for_token.unwrap().text().await;
+    if response_for_token.is_err() {
+        return Err(response_for_token.err().unwrap())
+    }
     let token = response_for_token.unwrap().to_string();
 
     let re = Regex::new(r#""recaptcha-token" value="(.*?)""#).unwrap();
@@ -86,31 +84,31 @@ pub async fn get_recaptcha_token(proxy: Option<String>) -> String {
         .headers(headers.clone())
         .send().await;
 
-    let response: String = resp.unwrap().text().await.unwrap();
+    if resp.is_err() {
+        return Err(resp.err().unwrap())
+    }
+
+    let response = resp.unwrap().text().await;
+
+    if response.is_err() {
+        return Err(response.err().unwrap())
+    }
+    let text = response.unwrap();
+
     let result = Regex::new(r#""rresp","(.*?)""#).unwrap()
-        .captures(&response)
+        .captures(&text)
         .unwrap()
         .get(1).map_or("", |m| m.as_str());
 
-    result.to_string()
+    Ok(result.to_string())
 }
 
 
 
-pub fn get_recaptcha_token_sync(proxy: Option<String>) -> String {
+pub fn get_recaptcha_token_sync(client: reqwest::blocking::Client) -> Result<String, Error> {
     let base_url = "https://www.google.com/recaptcha";
+    let session = client.clone();
         
-    let session: reqwest::blocking::Client;
-    if proxy.is_some() {
-        let p = reqwest::Proxy::http(proxy.unwrap().as_str()).unwrap();
-        session = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .proxy(p).build().unwrap();
-    } else {
-        session = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(true).build().unwrap();
-    };
-
     let mut headers: HeaderMap = HeaderMap::new();
     headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
     let data = get_data_for_captcha();
@@ -120,8 +118,16 @@ pub fn get_recaptcha_token_sync(proxy: Option<String>) -> String {
     let resp_for_token = session.get(url_get)
         .headers(headers.clone()).send();
 
+    if resp_for_token.is_err() {
+        return Err(resp_for_token.err().unwrap())
+    }
+
     let response_for_token = resp_for_token.unwrap().text();
-    let token = response_for_token.unwrap().to_string();
+    if response_for_token.is_err() {
+        return Err(response_for_token.err().unwrap())
+    }
+
+    let token = response_for_token.unwrap();
 
     let re = Regex::new(r#""recaptcha-token" value="(.*?)""#).unwrap();
     let captchures = re.captures(&token).unwrap();
@@ -153,13 +159,22 @@ pub fn get_recaptcha_token_sync(proxy: Option<String>) -> String {
         .headers(headers.clone())
         .send();
 
-    let response: String = resp.unwrap().text().unwrap();
+    if resp.is_err() {
+        return Err(resp.err().unwrap())
+    }
+
+    let response = resp.unwrap().text();
+    if response.is_err() {
+        return Err(response.err().unwrap())
+    }
+
+    let text = response.unwrap();
     let result = Regex::new(r#""rresp","(.*?)""#).unwrap()
-        .captures(&response)
+        .captures(&text)
         .unwrap()
         .get(1).map_or("", |m| m.as_str());
 
-    result.to_string()
+    Ok(result.to_string())
 }
 
 
@@ -168,25 +183,17 @@ pub async fn make_registration(
     tip_formular: u32, 
     registration_date: String,
     mut g_recaptcha_response: Option<String>,
-    proxy: Option<String>
-) -> String {
-    let session: Client;
-    let arg;
+    client: Client
+) -> Result<String, Error> {
+    let session = client.clone();
 
-    if proxy.is_some() {
-        let p = reqwest::Proxy::http(proxy.clone().unwrap().as_str()).unwrap();
-        session = Client::builder()
-            .danger_accept_invalid_certs(true)
-            .proxy(p).build().unwrap();
-        arg = Some(proxy.clone().unwrap());
-
-    } else {
-        session = Client::builder().danger_accept_invalid_certs(true).build().unwrap();
-        arg = None;
-    };
-    
     if g_recaptcha_response.is_none() {
-        g_recaptcha_response = Some(get_recaptcha_token(arg).await.to_string());
+        let captcha_result = get_recaptcha_token(session.clone()).await;
+        if captcha_result.is_err() {
+            return Err(captcha_result.err().unwrap())
+        }
+
+        g_recaptcha_response = Some(captcha_result.unwrap());
     }
     
     let mut hashmap = HashMap::new();
@@ -230,11 +237,18 @@ pub async fn make_registration(
         .headers(headers)
         .multipart(form);
 
-    let resp = req_builder.send().await.unwrap();
-    let response = resp.text().await.unwrap();
-    // println!("{} {}", response, arg.unwrap_or("".to_string()));
+    let resp = req_builder.send().await;
 
-    response
+    if resp.is_err() {
+        return Err(resp.err().unwrap())
+    }
+
+    let response = resp.unwrap().text().await;
+    if response.is_err() {
+        return Err(response.err().unwrap())
+    }
+
+    Ok(response.unwrap())
     
 }
 
@@ -244,25 +258,16 @@ pub fn make_registration_sync(
     tip_formular: u32, 
     registration_date: String,
     mut g_recaptcha_response: Option<String>,
-    proxy: Option<String>
-) -> String {
-    let session: reqwest::blocking::Client;
-    let arg;
+    client: reqwest::blocking::Client
+) -> Result<String, Error> {
+    let session = client.clone();
 
-    if proxy.is_some() {
-        let p = reqwest::Proxy::http(proxy.clone().unwrap().as_str()).unwrap();
-        session = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .proxy(p).build().unwrap();
-        arg = Some(proxy.clone().unwrap());
-
-    } else {
-        session = reqwest::blocking::Client::builder().danger_accept_invalid_certs(true).build().unwrap();
-        arg = None;
-    };
-    
     if g_recaptcha_response.is_none() {
-        g_recaptcha_response = Some(get_recaptcha_token_sync(arg).to_string());
+        let captcha_result = get_recaptcha_token_sync(session.clone());
+        if captcha_result.is_err() {
+            return Err(captcha_result.err().unwrap())
+        }
+        g_recaptcha_response = Some(captcha_result.unwrap());
     }
     
     let mut hashmap = HashMap::new();
@@ -305,12 +310,19 @@ pub fn make_registration_sync(
     let req_builder = session.post(url)
         .headers(headers)
         .multipart(form);
+    
+    let resp = req_builder.send();
+    
+    if resp.is_err() {
+        return Err(resp.err().unwrap())
+    }
+    
+    let response = resp.unwrap().text();
+    if response.is_err() {
+        return Err(response.err().unwrap())
+    }
 
-    let resp = req_builder.send().unwrap();
-    let response = resp.text().unwrap();
-    // println!("{} {}", response, arg.unwrap_or("".to_string()));
-
-    response
+    Ok(response.unwrap())
     
 }
 
@@ -427,23 +439,46 @@ fn get_headers() -> HeaderMap {
 #[pyclass]
 struct APIRomania {
     client: Client,
-    captcha_passer: CaptchaPasser
+    sync_client: reqwest::blocking::Client,
 }
 
 
 #[pymethods]
 impl APIRomania {
     #[new]
-    fn new() -> Self {
-        let client: Client = Client::builder()
-            .danger_accept_invalid_certs(true)
-            .build().unwrap();
+    fn new(proxy: Option<&str>) -> Self {
+        let client: Client;
+        let sync_client: reqwest::blocking::Client;
 
-        let captcha_passer = CaptchaPasser::new();
-        APIRomania { client, captcha_passer }
+        if proxy.clone().is_some() {
+            let p = reqwest::Proxy::http(proxy.clone().unwrap()).unwrap();
+            client = Client::builder()
+                .danger_accept_invalid_certs(true)
+                .proxy(p.clone())
+                .build()
+                .unwrap();
+
+            sync_client = reqwest::blocking::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .proxy(p.clone())
+                .build()
+                .unwrap();
+        } else {
+            client = Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
+
+            sync_client = reqwest::blocking::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap();
+        }
+        
+        APIRomania { client, sync_client }
     }
 
-    #[pyo3(signature = (user_data, tip_formular, registration_date, g_recaptcha_response=None, proxy=None))]
+    #[pyo3(signature = (user_data, tip_formular, registration_date, g_recaptcha_response=None))]
     pub fn make_registration<'a>(
         &self,
         py: Python<'a>,
@@ -451,25 +486,45 @@ impl APIRomania {
         tip_formular: u32, 
         registration_date: String,
         g_recaptcha_response: Option<String>,
-        proxy: Option<String>
     ) -> PyResult<&'a PyAny> {
         let user_extracted_data: HashMap<String, String> = user_data.extract().unwrap();
         let py_clone = py.clone();
-        
+        let client = self.client.clone();
+
         pyo3_asyncio::tokio::future_into_py(py_clone, async move {
             let response = make_registration(
                 user_extracted_data.clone(),
                 tip_formular, 
                 registration_date.clone(), 
                 g_recaptcha_response.clone(),
-                proxy
+                client
             ).await;
-            Ok(response)
+            match response {
+                Ok(response) => Ok(response),
+                Err(e) => Err(
+                    PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                        format!(
+                            "error: {}. status request: {}. url: {}", 
+                            e.to_string(), 
+                            if let Some(status) = e.status() {
+                                status.to_string()
+                            } else {
+                                "".to_string()
+                            },
+                            if let Some(url) = e.url() {
+                                url.to_string()
+                            } else {
+                                "".to_string()
+                            }
+                        )
+                    )
+                )
+            }
         })
 
     }
     
-    #[pyo3(signature = (user_data, tip_formular, registration_date, g_recaptcha_response=None, proxy=None))]
+    #[pyo3(signature = (user_data, tip_formular, registration_date, g_recaptcha_response=None))]
     pub fn make_registration_sync<'a>(
         &self,
         py: Python<'a>,
@@ -477,65 +532,45 @@ impl APIRomania {
         tip_formular: u32, 
         registration_date: String,
         g_recaptcha_response: Option<String>,
-        proxy: Option<String>
     ) -> PyResult<String> {
         let user_extracted_data: HashMap<String, String> = user_data.extract().unwrap();
+        let sync_client = self.sync_client.clone();
+        
         
         py.allow_threads(|| {
-            let response: String = make_registration_sync(
+            let response = make_registration_sync(
                 user_extracted_data,
                 tip_formular, 
                 registration_date, 
                 g_recaptcha_response,
-                proxy
+                sync_client,
             );
-            Ok(response)
+            
+            match response {
+                Ok(response) => Ok(response),
+                Err(e) => Err(
+                    PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                        format!(
+                            "error: {}. status request: {}. url: {}", 
+                            e.to_string(), 
+                            if let Some(status) = e.status() {
+                                status.to_string()
+                            } else {
+                                "".to_string()
+                            },
+                            if let Some(url) = e.url() {
+                                url.to_string()
+                            } else {
+                                "".to_string()
+                            }
+                        )
+                    )
+                ),
+            }
         })
 
     }
     
-}
-
-
-async fn test_it() -> Result<String, Error> {
-    let api = APIRomania::new();
-    let c = CaptchaPasser::new();
-    
-    let mut user_data: HashMap<&str, &str> = HashMap::new();
-    user_data.insert("Adresa de email", "LPFVHWLh@gmail.com");
-    user_data.insert("Data nasterii", "1997-10-10");
-    user_data.insert("Locul naşterii", "ISTANBUL");
-    user_data.insert("Nume Pasaport", "ANASZ");
-    user_data.insert("Prenume Mama", "RECYE");
-    user_data.insert("Prenume Pasaport", "VALEED");
-    user_data.insert("Prenume Tata", "SABRI");
-    user_data.insert("Serie și număr Pașaport", "U10865982");
-
-    
-    // let  token = c.get_recaptcha_token(None);
-    // let res = api.make_registration(
-    //     // Python::new_pool(self),
-    //     PyDict::try_from(user_data), 2, "2025-01-14".to_string(), token, 
-    //     Some("http://ngjIZ71RZOif:RNW78Fm5@pool.proxy.market:10005".to_string())
-    // );
-    
-    let fut = Python::with_gil(|py| -> String {
-        let proxy = Some(String::from(""));
-        let res = api.make_registration(py, 
-            user_data.into_py_dict(py),
-            02, 
-            "2025-02-06".to_string(),
-            None,
-            proxy
-        );
-
-        res.unwrap().to_string()
-    });
-
-    println!("{}", fut);
-    let res = fut;
-    
-    Ok(res)
 }
 
 

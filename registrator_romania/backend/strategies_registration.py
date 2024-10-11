@@ -141,6 +141,8 @@ class StrategyWithoutProxy:
         self._g_recaptcha_responses = []
         
         self._enable_repeat_protection = enable_repeat_protection
+        self._scheduler = BackgroundScheduler()
+        
     async def start(self):
         if self._users_data:
             logger.debug("get unregister users")
@@ -501,7 +503,7 @@ class StrategyWithoutProxy:
             # logger.debug("All threads finished")
             # scheduler.remove_job(job_id=job.id)
 
-        scheduler = BackgroundScheduler()
+        scheduler = self._scheduler
         job = scheduler.add_job(
             start_threads,
             "cron",

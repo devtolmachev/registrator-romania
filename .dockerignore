@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 .git/
+target/
 
 romania-registrator-app.json
 videos/

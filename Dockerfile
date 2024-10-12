@@ -16,12 +16,16 @@ WORKDIR /app/bindings
 RUN cargo update
 RUN maturin build --release
 
+FROM python:3.12-alpine3.20
 # install python dependencies
+RUN pip install poetry
 COPY pyproject.toml /app/
+WORKDIR /app
 RUN poetry config virtualenvs.create false
 RUN poetry install --no-root --no-interaction --no-ansi
 
-RUN pip install `find . -name "*.whl" -type f`
+COPY --from=rust_builder /app/bindings/target/wheels /wheels
+RUN pip install `find /wheels -name "*.whl" -type f`
 
 # set working directory
 WORKDIR /app

@@ -31,6 +31,7 @@ uvloop = { version = "^0.20.0", markers = "platform_system != 'Windows'" }
 winloop = { version = "^0.1.6", markers = "platform_system == 'Windows'" }
 aiofiles = "^24.1.0"
 maturin = {extras = ["zig"], version = "^1.7.4"}
+aiohttp = "^3.10.10"
 
 
 [build-system]

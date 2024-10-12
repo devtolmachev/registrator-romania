@@ -12,8 +12,6 @@ from zoneinfo import ZoneInfo
 import aiofiles
 import dateutil
 from docx import Document
-import gspread_asyncio
-from google.auth.credentials import Credentials
 from loguru import logger
 import openpyxl
 import pandas as pd
@@ -27,19 +25,6 @@ def divide_list(src_list: list, divides: int = 100):
 
 def filter_by_log_level(loglevels: list[str]):
     return lambda record: record["level"].name in loglevels
-
-
-def get_creds() -> Credentials:
-    """Get google spreadsheet credentails."""
-    cfg = get_config()
-    creds = Credentials.from_service_account_file(cfg["GOOGLE_TOKEN_FILE"])
-    return creds.with_scopes(
-        [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-    )
 
 
 def is_host_port(v: str):
@@ -291,48 +276,6 @@ def get_users_data_from_xslx(path: str = None):
     df.drop(df.index[0], inplace=True)
     objs_raw = df.to_dict("records")
     return prepare_users_data(objs_raw)
-
-
-def get_gspread_creds() -> Credentials:
-    """Get google spreadsheet credentails."""
-    cfg = get_config()
-    creds = Credentials.from_service_account_file(cfg["GOOGLE_TOKEN_FILE"])
-    return creds.with_scopes(
-        [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-    )
-
-
-async def get_users_data_from_gspread(
-    sheet_url: str, log: bool = False
-) -> pd.DataFrame:
-    r"""
-    Get DataFrame of users (very good api for work with .csv) from google
-    sheets.
-    """
-    manager = gspread_asyncio.AsyncioGspreadClientManager(get_creds)
-
-    if log:
-        logger.info("try to authorizate in gsheets")
-    agc = await manager.authorize()
-
-    if log:
-        logger.info("try to open by url")
-
-    sheet = await agc.open_by_url(sheet_url)
-    if log:
-        logger.info("try to get sheet")
-
-    sheet1 = await sheet.get_sheet1()
-    if log:
-        logger.info("try to get records")
-
-    table_data = await sheet1.get_all_records()
-    table_data = [{k: v.strip() for k, v in d.items()} for d in table_data]
-    return pd.DataFrame(table_data)
 
 
 def generate_fake_users_data(n: int = 20):

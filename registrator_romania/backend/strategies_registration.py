@@ -1044,7 +1044,7 @@ def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data:
                 print(f"RuntimeError: {e}")
                 continue
             
-            if now > stop_when:
+            if now >= stop_when:
                 return
             
             took = now - start
@@ -1131,12 +1131,14 @@ class BindingStrategy(StrategyWithoutProxy):
             for user_data in [_user_data] * self._parallel_threads
         ]
         
-        stop_when = datetime.now().replace(hour=self._stop_when[0], minute=self._stop_when[1]).timestamp()
+        stop_when = datetime.now().replace(hour=self._stop_when[0], minute=self._stop_when[1], second=0).timestamp()
         
         params = [
             (self._registration_date, self._tip_formular, user_data, stop_when, proxies)
             for user_data in users_data
         ]
+        for i in range(10):
+            random.shuffle(params)
         
         def run():
             try:

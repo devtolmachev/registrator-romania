@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import logging
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 from registrator_romania.backend.database.api import UsersService
 from registrator_romania.backend.strategies_registration import (
@@ -70,8 +71,10 @@ async def main_async(
     logger.info(f"we have {len(users_data)} raw users to registrate")
 
     async def start_registrations():
+        nonlocal stop_time
         # For debug commented code
         # users_data = generate_fake_users_data(20)
+        stop_time = stop_time.replace(hour=datetime.now().hour)
         if strategy == "default":
             strategy_cls = StrategyWithoutProxy(
                 registration_date=registration_date,
@@ -114,9 +117,13 @@ async def main_async(
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
 
-        logger.info(f"Start strategy of registrations [{strategy}]")
+        msg = f"Start strategy of registrations [{strategy}]"
+        logger.info(msg)
+        logger.debug(msg)
         await strategy_cls.start()
-        scheduler.remove_job(job_id=job.id)
+        msg = f"Strategy stopped [{strategy}]"
+        logger.info(msg)
+        logger.debug(msg)
 
     if not without_remote_database:
         try:
@@ -136,20 +143,28 @@ async def main_async(
             pass
         except Exception as e:
             logger.exception(e)
-
+            
+    async def schedule():
+        try:
+            await start_registrations()
+        except Exception as e:
+            logger.exception(e)
+        scheduler.add_job(start_registrations, IntervalTrigger(hours=1), max_instances=1)
+        scheduler.remove_job(other_job.id)
+            
     tz = ZoneInfo("Europe/Moscow")
     logging.getLogger("apscheduler").setLevel(level=logging.ERROR)
     scheduler = AsyncIOScheduler()
-    job = scheduler.add_job(
-        start_registrations, "cron", start_date=start_time, timezone=tz, max_instances=1
+    other_job = scheduler.add_job(
+        schedule, "cron", start_date=start_time, timezone=tz, max_instances=1
     )
     scheduler.start()
 
     while True:
         dt_now = get_dt_moscow()
         await asyncio.sleep(60)
-        if dt_now.hour == stop_time.hour and dt_now.minute >= stop_time.minute:
-            return
+        # if dt_now.hour == stop_time.hour and dt_now.minute >= stop_time.minute:
+        #     return
 
 
 def main():

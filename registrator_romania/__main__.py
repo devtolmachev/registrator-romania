@@ -508,21 +508,24 @@ def main(
         .replace(
             hour=int(stop_time.split(":")[0].strip()),
             minute=int(stop_time.split(":")[1].strip()),
+            second=0
         )
     )
 
     async def wait():
         while True:
             await asyncio.sleep(30)
-            curr_dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
-            if (
-                curr_dt.hour == stop_time.hour
-                and curr_dt.minute <= stop_time.minute
-            ):
-                break
+            # curr_dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
+            # if (
+            #     curr_dt.hour == stop_time.hour
+            #     and curr_dt.minute <= stop_time.minute
+            # ):
+            #     break
 
     loop = asyncio.new_event_loop()
     loop.run_until_complete(wait())
+    loop.stop()
+    loop.close()
 
 
 if __name__ == "__main__":

@@ -140,6 +140,8 @@ class StrategyWithoutProxy:
         self._enable_repeat_protection = enable_repeat_protection
         self._scheduler = BackgroundScheduler()
         
+        self._completed_multiple = False
+        
     async def start(self):
         if self._users_data:
             logger.debug("get unregister users")
@@ -1045,7 +1047,7 @@ def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data:
                 continue
             
             if now >= stop_when:
-                return
+                break
             
             took = now - start
             logger.info(f"От начала прошло (секунды): {took}. Запросов отправлено: {reqs}. Ответов получено: {resps}")
@@ -1056,6 +1058,8 @@ def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data:
                 await asyncio.sleep(5)
                 tasks.clear()
                 # await asyncio.sleep(10)
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         
     
@@ -1095,10 +1099,18 @@ def run_multiple_registrations_rust(reg_date: datetime, tip_formular, user_data:
                 logger.error(f"{fn} {ln} - {error}")
         except Exception as e:
             logger.exception(e)
-        
+    
+    async def start_task(user_data: dict):
+        try:
+            await registrate_user(user_data)
+        except Exception as e:
+            logger.exception(e)
+
     asyncio.set_event_loop_policy(floop.EventLoopPolicy())
     loop = asyncio.new_event_loop()
-    loop.run_until_complete(registrate_user(user_data))
+    loop.run_until_complete(start_task(user_data))
+    loop.stop()
+    loop.close()
 
 
 class BindingStrategy(StrategyWithoutProxy):
@@ -1154,6 +1166,7 @@ class BindingStrategy(StrategyWithoutProxy):
             finally:
                 print("finally")
                 scheduler.remove_job(job.id)
+                self._completed_multiple = True
         
         scheduler = self._scheduler
         job = scheduler.add_job(
@@ -1165,6 +1178,14 @@ class BindingStrategy(StrategyWithoutProxy):
         )
         scheduler.start()
         logging.getLogger("apscheduler").setLevel(logging.ERROR)
+        
+    async def start_registration(self):
+        await self.schedule_multiple_registrations()
+        while True:
+            await asyncio.sleep(1)
+            logger.debug("Start cycle [THE ONLY DEBUG MESSAGE]")
+            if self._completed_multiple:
+                break
 
 
 async def prepare_database(reg_dt: datetime, users_data: list[dict]):
@@ -1195,30 +1216,30 @@ async def database_prepared_correctly(reg_dt: datetime, users_data: list[dict]):
 async def main():
     # ISAI - 2
     
-    reg_date = datetime(year=2025, month=1, day=16)
+    reg_date = datetime(year=2025, month=2, day=19)
     # data = generate_fake_users_data(5)
     data = get_users_data_from_xslx("users.xlsx")
     data = generate_fake_users_data(80)
     tip = 4
-    tip = 2
+    # tip = 2
     multiple_requests = datetime.now().replace(hour=15, minute=24, second=49)
     multiple_requests = datetime.now()
 
-    strategy = BindingStrategy(
-        registration_date=reg_date,
-        tip_formular=tip,
-        users_data=data,
-        mode="sync",
-        async_requests_num=2,
-        multiple_registration_on=multiple_requests,
-        multiple_registration_threads=5,
-        without_remote_database=True,
-        # proxies_file="proxies.txt",
-        stop_when=[22, 42],
-        requests_on_user_per_second=5,
-    )
-    await strategy.start()
-    return
+    # strategy = BindingStrategy(
+    #     registration_date=reg_date,
+    #     tip_formular=tip,
+    #     users_data=data,
+    #     mode="sync",
+    #     async_requests_num=2,
+    #     multiple_registration_on=multiple_requests,
+    #     multiple_registration_threads=5,
+    #     without_remote_database=True,
+    #     # proxies_file="proxies.txt",
+    #     stop_when=[22, 42],
+    #     requests_on_user_per_second=5,
+    # )
+    # await strategy.start()
+    # return
     # logger.add("logs.log", level="DEBUG")
 
 
@@ -1232,8 +1253,8 @@ async def main():
     # if not await database_prepared_correctly(reg_date, data):
     #     await prepare_database(reg_date, data)
 
-    multiple_requests = datetime.now() - timedelta(seconds=3)
-    strategy = StrategyWithoutProxy(
+    # multiple_requests = datetime.now() - timedelta(seconds=3)
+    strategy = BindingStrategy(
         registration_date=reg_date,
         tip_formular=tip,
         users_data=data,
@@ -1244,11 +1265,12 @@ async def main():
         multiple_registration_on=multiple_requests,
         multiple_registration_threads=5,
         without_remote_database=True,
-        proxies_file="proxies.txt",
-        # stop_when=multiple_requests + timedelta(seconds=15),
+        # proxies_file="proxies.txt",
+        stop_when=[20, 22],
         requests_on_user_per_second=1,
     )
-    # res = await strategy.start()
+    res = await strategy.start()
+    
     # res = await strategy.get_registerer_users(0)
     # print(res, len(res), len(data))
     ...

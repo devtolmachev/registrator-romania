@@ -264,7 +264,7 @@ def run_as_processes(process_count: int, params: dict):
     multiple_requesting_threads = params["multiple_requesting_threads"]
 
     start_time = datetime.now().strptime(start_time, "%H:%M")
-    stop_time = datetime.strptime(stop_time, "%H:%M")
+    stop_time = datetime.strptime(stop_time, "%H:%M:%S")
     registration_date = datetime.strptime(registration_date, "%d.%m.%Y")
     use_shuffle = True if "yes" else False
     save_logs = True if "yes" else False
@@ -296,7 +296,7 @@ def run_as_processes(process_count: int, params: dict):
     stop_time = (
         datetime.now()
         .astimezone(ZoneInfo("Europe/Moscow"))
-        .replace(hour=stop_time.hour, minute=stop_time.minute)
+        .replace(hour=stop_time.hour, minute=stop_time.minute, second=stop_time.second)
     )
 
     kw = {
@@ -339,7 +339,7 @@ def run_as_processes(process_count: int, params: dict):
 # @click.option("--containers", default=5, help=HELP_CONTAINERS)
 # @click.option("--async_requests_num", default=10, help=HELP_ASYNC_REQUESTS_NUM)
 # @click.option("--use_shuffle", default="yes", help=HELP_USE_SHUFFLE)
-@click.option("--stop_time", default="09:02", help=HELP_STOP_WHEN)
+@click.option("--stop_time", default="09:02:05", help=HELP_STOP_WHEN)
 @click.option("--start_time", default="07:30", help=HELP_START_TIME)
 @click.option(
     "--registration_date",
@@ -508,7 +508,7 @@ def main(
         .replace(
             hour=int(stop_time.split(":")[0].strip()),
             minute=int(stop_time.split(":")[1].strip()),
-            second=0
+            second=int(stop_time.split(":")[2].strip())
         )
     )
 

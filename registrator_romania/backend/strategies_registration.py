@@ -88,7 +88,7 @@ class StrategyWithoutProxy:
         tip_formular: int,
         debug: bool = False,
         users_data: list[dict] = None,
-        stop_when: tuple[int, int] = None,
+        stop_when: tuple[int, int, int] = None,
         mode: Literal["async", "sync"] = "sync",
         async_requests_num: int = 10,
         use_shuffle: bool = True,
@@ -111,7 +111,7 @@ class StrategyWithoutProxy:
         logger.debug(msg)
 
         if not stop_when:
-            stop_when = [9, 2]
+            stop_when = [9, 2, 0]
         self._api = APIRomania(debug=debug)
         self._db = UsersService()
         self._users_data = users_data or []
@@ -1143,7 +1143,7 @@ class BindingStrategy(StrategyWithoutProxy):
             for user_data in [_user_data] * self._parallel_threads
         ]
         
-        stop_when = datetime.now().replace(hour=self._stop_when[0], minute=self._stop_when[1], second=0).timestamp()
+        stop_when = datetime.now().replace(hour=self._stop_when[0], minute=self._stop_when[1], second=self._stop_when[2]).timestamp()
         
         params = [
             (self._registration_date, self._tip_formular, user_data, stop_when, proxies)

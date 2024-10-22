@@ -140,7 +140,7 @@ class StrategyWithoutProxy:
         self._enable_repeat_protection = enable_repeat_protection
         self._scheduler = BackgroundScheduler()
         
-        self._completed_multiple = False
+        self._multiple_done = False
         
     async def start(self):
         if self._users_data:
@@ -1166,7 +1166,7 @@ class BindingStrategy(StrategyWithoutProxy):
             finally:
                 print("finally")
                 scheduler.remove_job(job.id)
-                self._completed_multiple = True
+                self._multiple_done = True
         
         scheduler = self._scheduler
         job = scheduler.add_job(
@@ -1182,9 +1182,9 @@ class BindingStrategy(StrategyWithoutProxy):
     async def start_registration(self):
         await self.schedule_multiple_registrations()
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)
             logger.debug("Start cycle [THE ONLY DEBUG MESSAGE]")
-            if self._completed_multiple:
+            if self._multiple_done:
                 break
 
 

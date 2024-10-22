@@ -145,16 +145,16 @@ async def main_async(
             logger.exception(e)
             
     async def schedule():
+        scheduler.add_job(start_registrations, IntervalTrigger(hours=1), max_instances=1)
+        scheduler.remove_job(other_job.id)
         try:
             await start_registrations()
         except Exception as e:
             logger.exception(e)
-        scheduler.add_job(start_registrations, IntervalTrigger(hours=1), max_instances=1)
-        scheduler.remove_job(other_job.id)
             
     tz = ZoneInfo("Europe/Moscow")
     logging.getLogger("apscheduler").setLevel(level=logging.ERROR)
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(timezone=tz.key)
     other_job = scheduler.add_job(
         schedule, "cron", start_date=start_time, timezone=tz, max_instances=1
     )

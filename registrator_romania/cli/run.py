@@ -47,6 +47,7 @@ async def main_async(
 ):
     dt = datetime.now().astimezone(ZoneInfo("Europe/Moscow"))
     dirpath = f"registrations_{registration_date.strftime("%d.%m.%Y")}"
+    start_time = start_time.replace(hour=dt.hour)
 
     if save_logs:
         logger.remove()
@@ -74,7 +75,7 @@ async def main_async(
         nonlocal stop_time
         # For debug commented code
         # users_data = generate_fake_users_data(20)
-        stop_time = stop_time.replace(hour=datetime.now().hour)
+        stop_time = stop_time.replace(hour=get_dt_moscow().hour)
         if strategy == "default":
             strategy_cls = StrategyWithoutProxy(
                 registration_date=registration_date,
